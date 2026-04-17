@@ -27,29 +27,46 @@ Start with the guided helper on permissive Windows machines. On machines with
 Smart App Control or other download-reputation policy, use the manual
 certificate + `.appinstaller` flow first.
 
-The public download URLs are expected to live at:
+The public release page is:
 
-- `https://github.com/Zivilkannibale/DopeCompanion/releases/latest/download/DopeCompanion-Preview-Setup.exe`
-- `https://github.com/Zivilkannibale/DopeCompanion/releases/latest/download/DopeCompanion.appinstaller`
-- `https://github.com/Zivilkannibale/DopeCompanion/releases/latest/download/DopeCompanion.msix`
-- `https://github.com/Zivilkannibale/DopeCompanion/releases/latest/download/DopeCompanion.cer`
+- [MesmerPrism/DopeCompanion Releases](https://github.com/MesmerPrism/DopeCompanion/releases)
 
-## Guided Install
+If a direct asset link returns `404`, open the Releases page first. That means
+the latest packaged preview has not been published yet.
 
-1. Download `DopeCompanion-Preview-Setup.exe`.
-2. Let the helper trust the preview certificate and install or update the
-   packaged app.
-3. Launch `DOPE Companion Preview` from the Start menu if Windows does not open
-   it automatically.
-4. Continue with [First Session](first-session.md).
+<div class="download-start">
+  <section class="download-path download-path-primary">
+    <h2>Guided Install</h2>
+    <p>Use the helper EXE when the latest packaged preview release is available.</p>
+    <div class="action-row">
+      <a class="button primary" href="https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion-Preview-Setup.exe">Download Guided Install Helper</a>
+      <a class="button" href="https://github.com/MesmerPrism/DopeCompanion/releases">Open Releases</a>
+    </div>
+    <ol class="step-list">
+      <li>Download <code>DopeCompanion-Preview-Setup.exe</code>.</li>
+      <li>Let the helper trust the preview certificate and install or update the packaged app.</li>
+      <li>Launch <code>DOPE Companion Preview</code> from the Start menu if Windows does not open it automatically.</li>
+      <li>Continue with <a href="first-session.html">First Session</a>.</li>
+    </ol>
+  </section>
 
-## Manual Install
-
-1. Download `DopeCompanion.cer`.
-2. Install it into `Local Machine > Trusted People`.
-3. Download `DopeCompanion.appinstaller`.
-4. Open the downloaded `.appinstaller` file from disk.
-5. If that still fails, install the direct `DopeCompanion.msix` package.
+  <section class="download-path">
+    <h2>Manual Install</h2>
+    <p>Use this path when Smart App Control or certificate policy blocks the helper.</p>
+    <div class="action-row">
+      <a class="button" href="https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion.cer">Download Certificate</a>
+      <a class="button" href="https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion.appinstaller">Download App Installer</a>
+      <a class="button" href="https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion.msix">Download MSIX</a>
+    </div>
+    <ol class="step-list">
+      <li>Download <code>DopeCompanion.cer</code>.</li>
+      <li>Install it into <code>Local Machine &gt; Trusted People</code>.</li>
+      <li>Download <code>DopeCompanion.appinstaller</code>.</li>
+      <li>Open the downloaded <code>.appinstaller</code> file from disk.</li>
+      <li>If that still fails, install the direct <code>DopeCompanion.msix</code> package.</li>
+    </ol>
+  </section>
+</div>
 
 ## Before You Start
 

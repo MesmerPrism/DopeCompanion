@@ -56,7 +56,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private StudyShellViewModel? _activeStudyShell;
     private bool _isStudyBannerExpanded = true;
     private string _endpointDraft = string.Empty;
-    private string _browserUrlDraft = "https://zivilkannibale.github.io/DopeCompanion/";
+    private string _browserUrlDraft = "https://mesmerprism.com/DopeCompanion/";
     private string _connectionSummary = "No Quest endpoint action has run yet.";
     private string _usbSummary = "USB ADB probe has not run yet.";
     private string _foregroundSummary = "Active app query has not run yet.";
