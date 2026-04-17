@@ -176,6 +176,19 @@ function Initialize-DotNetSdkResolver {
         return
     }
 
+    $preferredSdkVersion = $null
+    $globalJsonPath = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..')) 'global.json'
+    if (Test-Path $globalJsonPath) {
+        try {
+            $globalJson = Get-Content -Path $globalJsonPath -Raw | ConvertFrom-Json
+            if (-not [string]::IsNullOrWhiteSpace($globalJson.sdk.version)) {
+                $preferredSdkVersion = $globalJson.sdk.version.Trim()
+            }
+        }
+        catch {
+        }
+    }
+
     $sdkCandidates = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match '^10\.' -and (Test-Path (Join-Path $_.FullName 'Sdks')) }
 
@@ -183,12 +196,21 @@ function Initialize-DotNetSdkResolver {
         return
     }
 
+    $preferredSdkDir = if (-not [string]::IsNullOrWhiteSpace($preferredSdkVersion)) {
+        $sdkCandidates |
+            Where-Object { $_.Name -eq $preferredSdkVersion } |
+            Select-Object -First 1
+    }
+
     $stableSdkDir = $sdkCandidates |
         Where-Object { $_.Name -notmatch '-' } |
         Sort-Object Name -Descending |
         Select-Object -First 1
 
-    $sdkDir = if ($null -ne $stableSdkDir) {
+    $sdkDir = if ($null -ne $preferredSdkDir) {
+        $preferredSdkDir
+    }
+    elseif ($null -ne $stableSdkDir) {
         $stableSdkDir
     }
     else {
