@@ -89,6 +89,9 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
             Write-Host "No dedicated preview-setup signing certificate is configured. The workflow will reuse the pinned helper asset from $env:PINNED_PREVIEW_SETUP_TAG to preserve its known-good Smart App Control reputation." -ForegroundColor Yellow
           }
+          elseif ($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 -eq $env:WINDOWS_PACKAGE_CERTIFICATE_BASE64) {
+            Write-Host 'Preview setup signing is configured to reuse the package-signing certificate. The helper will still be self-signed and CI must allow that trust posture explicitly.' -ForegroundColor Yellow
+          }
           else {
             Write-Host 'Dedicated preview-setup signing certificate detected.' -ForegroundColor Green
           }
@@ -229,6 +232,7 @@ jobs:
       - name: Validate release asset signatures
         shell: pwsh
         env:
+          WINDOWS_PACKAGE_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_BASE64 }}
           WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
           $args = @(
@@ -237,7 +241,8 @@ jobs:
             '-AllowSelfSignedPackage'
           )
 
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64) -or
+              $env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 -eq $env:WINDOWS_PACKAGE_CERTIFICATE_BASE64) {
             $args += '-AllowSelfSignedPreviewSetup'
           }
 
