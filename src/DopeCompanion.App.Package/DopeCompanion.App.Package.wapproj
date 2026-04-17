@@ -18,7 +18,8 @@
 
   <PropertyGroup>
     <ProjectGuid>bb9a8af5-17cf-4775-9faf-b327abcb2953</ProjectGuid>
-    <TargetPlatformVersion>10.0.19041.0</TargetPlatformVersion>
+    <PackagingTargetPlatformVersion Condition="'$(PackagingTargetPlatformVersion)' == ''">10.0.19041.0</PackagingTargetPlatformVersion>
+    <TargetPlatformVersion>$(PackagingTargetPlatformVersion)</TargetPlatformVersion>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <DefaultLanguage>en-US</DefaultLanguage>
     <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>

@@ -97,6 +97,47 @@ function Find-WindowsSdkTool {
     throw "$ToolName was not found. Install the Windows 10/11 SDK packaging tools."
 }
 
+function Get-UapTargetPlatformVersion {
+    $candidateRoots = @(
+        (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\DesignTime\CommonConfiguration\Neutral\UAP'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Platforms\UAP')
+    ) | Select-Object -Unique
+
+    $versions = foreach ($root in $candidateRoots) {
+        if (-not (Test-Path $root)) {
+            continue
+        }
+
+        Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            ForEach-Object {
+                $version = $null
+                if (-not [version]::TryParse($_.Name, [ref]$version)) {
+                    return
+                }
+
+                $uapPropsPath = Join-Path $_.FullName 'UAP.props'
+                $platformSdkPath = Join-Path $_.FullName 'Platform.xml'
+                if ((Test-Path $uapPropsPath) -or (Test-Path $platformSdkPath) -or $_.FullName -like '*\Platforms\UAP\*') {
+                    [PSCustomObject]@{
+                        Name    = $_.Name
+                        Version = $version
+                    }
+                }
+            }
+    }
+
+    $selectedVersion = $versions |
+        Sort-Object Version -Descending |
+        Select-Object -First 1
+
+    if ($null -eq $selectedVersion) {
+        throw 'Could not resolve an installed UAP target platform version from the Windows Kits folders.'
+    }
+
+    return $selectedVersion.Name
+}
+
 function Invoke-SignToolSign {
     param(
         [Parameter(Mandatory = $true)]
@@ -390,11 +431,13 @@ try {
     }
 
     $msbuildPath = Find-MSBuild
+    $targetPlatformVersion = Get-UapTargetPlatformVersion
     $msbuildArgs = @(
         $packageProjectPath,
         '/restore',
         "/p:Configuration=$Configuration",
         "/p:Platform=$Platform",
+        "/p:PackagingTargetPlatformVersion=$targetPlatformVersion",
         '/p:UapAppxPackageBuildMode=SideLoadOnly',
         '/p:AppxBundle=Never',
         "/p:AppxPackageDir=$appPackagesRoot\",
@@ -408,6 +451,7 @@ try {
     )
 
     Write-Host "Building MSIX package with $msbuildPath" -ForegroundColor Cyan
+    Write-Host "Using UAP target platform version $targetPlatformVersion" -ForegroundColor Cyan
     & $msbuildPath @msbuildArgs | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "MSIX package build failed with exit code $LASTEXITCODE"

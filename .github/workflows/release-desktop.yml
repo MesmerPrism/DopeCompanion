@@ -41,39 +41,6 @@ jobs:
       - name: Setup MSBuild.exe
         uses: microsoft/setup-msbuild@v2
 
-      - name: Ensure Windows 10 SDK 19041
-        shell: pwsh
-        run: |
-          $uapPropsPath = 'C:\Program Files (x86)\Windows Kits\10\DesignTime\CommonConfiguration\Neutral\UAP\10.0.19041.0\UAP.props'
-          if (Test-Path $uapPropsPath) {
-            Write-Host 'Windows 10 SDK 19041 is already available on the runner.' -ForegroundColor Green
-            exit 0
-          }
-
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          $installPath = & $vswhere -latest -prerelease -products * -property installationPath
-          if ([string]::IsNullOrWhiteSpace($installPath)) {
-            throw 'Could not resolve the hosted Visual Studio installation path.'
-          }
-
-          $installerPath = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vs_installer.exe'
-          if (-not (Test-Path $installerPath)) {
-            throw "Visual Studio installer was not found at $installerPath"
-          }
-
-          & $installerPath modify `
-            --installPath $installPath `
-            --add Microsoft.VisualStudio.Component.Windows10SDK.19041 `
-            --quiet --wait --norestart
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Installing Microsoft.VisualStudio.Component.Windows10SDK.19041 failed with exit code $LASTEXITCODE"
-          }
-
-          if (-not (Test-Path $uapPropsPath)) {
-            throw "Windows 10 SDK 19041 is still missing after installer completion: $uapPropsPath"
-          }
-
       - name: Resolve release version
         id: version
         shell: pwsh
