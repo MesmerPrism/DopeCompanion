@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     env:
       PACKAGE_ID: MesmerPrism.DopeCompanionPreview
       PACKAGE_DISPLAY_NAME: DOPE Companion Preview
