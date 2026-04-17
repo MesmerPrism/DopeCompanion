@@ -1,0 +1,15 @@
+﻿{
+    "apps":  [
+                 {
+                     "sha256":  "E94FD2C48DAC8A26E82285C37B3D7D2D47C8A16F50334C5C3F2AD93C9F4142F3",
+                     "status":  "compatible",
+                     "label":  "DOPE projected-feed Colorama build",
+                     "notes":  "Bundled public DOPE projected-feed Colorama APK. The Windows companion currently treats this bundle as the approved install and launch target. Live quest_twin_* and quest_hotload_config workflows remain gated on the Unity-side Astral-style bridge landing in the DOPE runtime.",
+                     "tags":  [
+                                  "dope",
+                                  "projected-feed",
+                                  "colorama"
+                              ]
+                 }
+             ]
+}

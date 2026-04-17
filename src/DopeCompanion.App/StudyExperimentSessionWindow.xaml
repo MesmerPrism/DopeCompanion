@@ -1,0 +1,665 @@
+<Window x:Class="DopeCompanion.App.StudyExperimentSessionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:local="clr-namespace:DopeCompanion.App"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="{Binding ExperimentSessionWindowTitle}"
+        Width="1360"
+        Height="940"
+        MinWidth="1120"
+        MinHeight="760"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AppBackgroundBrush}"
+        Foreground="{StaticResource InkBrush}">
+    <Window.Resources>
+        <local:OutcomeKindToBrushConverter x:Key="OutcomeKindToBrush" />
+        <local:OutcomeKindToSoftBrushConverter x:Key="OutcomeKindToSoftBrush" />
+        <local:LogLevelToBrushConverter x:Key="LogLevelToBrush" />
+        <local:StatusDetailFormatterConverter x:Key="StatusDetailFormatter" />
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+        <Style x:Key="SessionMicroLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="SessionBodyStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="SessionCodeStyle" TargetType="TextBlock" BasedOn="{StaticResource SessionBodyStyle}">
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Style="{StaticResource PanelBorderStyle}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="320" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Experiment Session"
+                               Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Use this window after the sequential guide has passed. This is the preferred live participant-run surface: start or stop recording, watch the live session telemetry, and keep only the few in-session controls that still matter."
+                               Style="{StaticResource SectionCaptionStyle}"
+                               Margin="0,6,0,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <Border Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource LineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="8,6">
+                        <StackPanel>
+                            <TextBlock Text="Opened Build"
+                                       Style="{StaticResource SessionMicroLabelStyle}" />
+                            <TextBlock Text="{Binding PublishedBuildSummary}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="13"
+                                       FontWeight="Bold"
+                                       TextAlignment="Right"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding PublishedBuildDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextAlignment="Right"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding RecordingSummary}"
+                               FontSize="18"
+                               FontWeight="Bold"
+                               Foreground="{Binding RecordingLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                               TextAlignment="Right"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding LastTwinStateTimestampLabel}"
+                               Style="{StaticResource SectionCaptionStyle}"
+                               Margin="0,6,0,0"
+                               TextAlignment="Right"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="360" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Background="{Binding RecordingLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding RecordingLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Session Control"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="Participant Id"
+                                       Style="{StaticResource SessionMicroLabelStyle}"
+                                       Margin="0,12,0,0" />
+                            <TextBox Text="{Binding ParticipantIdDraft, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="18"
+                                     Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding ParticipantEntrySummary}"
+                                       FontSize="18"
+                                       FontWeight="Bold"
+                                       Margin="0,10,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ParticipantEntryDetail}"
+                                       Style="{StaticResource SessionBodyStyle}"
+                                       Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding ParticipantExistingSessionsLabel}"
+                                       Style="{StaticResource SessionBodyStyle}"
+                                       Margin="0,6,0,0"
+                                       Visibility="{Binding ParticipantHasExistingSessions, Converter={StaticResource BoolToVisibility}}" />
+
+                            <TextBlock Text="{Binding RecordingSessionLabel}"
+                                       Style="{StaticResource SessionCodeStyle}"
+                                       Margin="0,12,0,0" />
+
+                            <TextBlock Text="Recording"
+                                       Style="{StaticResource SessionMicroLabelStyle}"
+                                       Margin="0,14,0,0" />
+                            <Button Content="{Binding RecordingToggleActionLabel}"
+                                    Command="{Binding ToggleRecordingCommand}"
+                                    IsEnabled="{Binding CanToggleRecording}"
+                                    Style="{StaticResource StateActionButtonStyle}"
+                                    Tag="{Binding RecordingToggleActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
+                                    Margin="0,6,0,0" />
+                            <Button Content="Open Session Folder"
+                                    Command="{Binding OpenRecordingSessionFolderCommand}"
+                                    IsEnabled="{Binding CanOpenRecordingSessionFolder}"
+                                    Margin="0,6,0,0" />
+                            <Button Content="Open Quest Backup"
+                                    Command="{Binding OpenRecordingSessionDevicePullFolderCommand}"
+                                    IsEnabled="{Binding CanOpenRecordingSessionDevicePullFolder}"
+                                    Margin="0,6,0,0" />
+                            <Button Content="Open Session PDF"
+                                    Command="{Binding OpenRecordingSessionPdfCommand}"
+                                    IsEnabled="{Binding CanOpenRecordingSessionPdf}"
+                                    Margin="0,6,0,0" />
+                            <Expander x:Name="SessionControlDetailExpander"
+                                      Margin="0,12,0,0">
+                                <Expander.Header>
+                                    <TextBlock Text="Detail + Paths"
+                                               Style="{StaticResource SessionMicroLabelStyle}" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,6,0,0">
+                                    <TextBlock Text="{Binding RecordingDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource SessionBodyStyle}" />
+                                    <TextBlock Text="Windows Session Folder"
+                                               Style="{StaticResource SessionMicroLabelStyle}"
+                                               Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding RecordingFolderPath}"
+                                               Style="{StaticResource SessionCodeStyle}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="Pulled Quest Backup"
+                                               Style="{StaticResource SessionMicroLabelStyle}"
+                                               Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding RecordingDevicePullFolderPath}"
+                                               Style="{StaticResource SessionCodeStyle}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="Session Review PDF"
+                                               Style="{StaticResource SessionMicroLabelStyle}"
+                                               Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding RecordingPdfPath}"
+                                               Style="{StaticResource SessionCodeStyle}"
+                                               Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Margin="0,14,0,0"
+                            Background="{Binding ClockAlignmentConsistencyLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding ClockAlignmentConsistencyLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Clock + Network"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="{Binding ClockAlignmentConsistencySummary}"
+                                       FontSize="18"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding ClockAlignmentConsistencyLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ClockAlignmentConsistencyMetricsLabel}"
+                                       Style="{StaticResource SessionBodyStyle}"
+                                       Margin="0,8,0,0" />
+                            <Expander x:Name="ClockNetworkDetailExpander"
+                                      Margin="0,8,0,0">
+                                <Expander.Header>
+                                    <TextBlock Text="Detail"
+                                               Style="{StaticResource SessionMicroLabelStyle}" />
+                                </Expander.Header>
+                                <TextBlock Text="{Binding ClockAlignmentConsistencyDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,6,0,0" />
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Margin="0,14,0,0"
+                            Background="{Binding HeadsetAwakeLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding HeadsetAwakeLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Headset Wake + Proximity"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="{Binding HeadsetAwakeSummary}"
+                                       FontSize="18"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding HeadsetAwakeLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding HeadsetForegroundLabel}"
+                                       Style="{StaticResource SessionBodyStyle}"
+                                       Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding ProximitySummary}"
+                                       Style="{StaticResource SessionBodyStyle}"
+                                       Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding ProximityEvidenceLabel}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,6,0,0" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button Content="{Binding ProximityActionLabel}"
+                                        Command="{Binding ToggleProximityCommand}"
+                                        IsEnabled="{Binding CanToggleProximity}"
+                                        Style="{StaticResource StateActionButtonStyle}"
+                                        Tag="{Binding ProximityActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}" />
+                                <Button Content="Refresh Snapshot"
+                                        Command="{Binding RefreshDeviceSnapshotCommand}"
+                                        Margin="8,0,0,0" />
+                            </WrapPanel>
+                            <Expander Margin="0,12,0,0">
+                                <Expander.Header>
+                                    <TextBlock Text="Detail"
+                                               Style="{StaticResource SessionMicroLabelStyle}" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,6,0,0">
+                                    <TextBlock Text="{Binding HeadsetAwakeDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource SessionBodyStyle}" />
+                                    <TextBlock Text="{Binding ProximityDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource SessionBodyStyle}"
+                                               Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Margin="0,14,0,0"
+                            Background="{Binding LastActionLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding LastActionLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Latest Command"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="{Binding LastActionLabel}"
+                                       FontSize="18"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding LastActionLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <Expander x:Name="LatestCommandDetailExpander"
+                                      Margin="0,10,0,0">
+                                <Expander.Header>
+                                    <TextBlock Text="Detail"
+                                               Style="{StaticResource SessionMicroLabelStyle}" />
+                                </Expander.Header>
+                                <TextBlock Text="{Binding LastActionDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,6,0,0" />
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0"
+                                Style="{StaticResource PanelBorderStyle}"
+                                Background="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding BreathingStatusTitle}"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding ControllerSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <ProgressBar Margin="0,10,0,0"
+                                             Height="8"
+                                             Maximum="100"
+                                             Value="{Binding BreathingDriverValuePercent, Mode=OneWay}"
+                                             Foreground="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                <TextBlock Text="{Binding BreathingDriverValueText}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding ControllerCalibrationLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,8,0,0" />
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Button x:Name="StartDynamicAxisCalibrationButton"
+                                            Content="Start Dynamic-Axis Calibration"
+                                            Command="{Binding StartDynamicAxisCalibrationCommand}"
+                                            IsEnabled="{Binding CanStartDynamicAxisCalibration}" />
+                                    <Button x:Name="StartFixedAxisCalibrationButton"
+                                            Content="Start Fixed-Axis Calibration"
+                                            Command="{Binding StartFixedAxisCalibrationCommand}"
+                                            IsEnabled="{Binding CanStartFixedAxisCalibration}"
+                                            Margin="8,0,0,0" />
+                                    <Button x:Name="ResetCalibrationButton"
+                                            Content="Reset Calibration"
+                                            Command="{Binding ResetBreathingCalibrationCommand}"
+                                            IsEnabled="{Binding CanResetBreathingCalibration}"
+                                            Margin="8,0,0,0" />
+                                </WrapPanel>
+                                <Expander x:Name="ControllerDetailExpander"
+                                          Margin="0,12,0,0">
+                                    <Expander.Header>
+                                        <TextBlock Text="Detail"
+                                                   Style="{StaticResource SessionMicroLabelStyle}" />
+                                    </Expander.Header>
+                                    <StackPanel Margin="0,6,0,0">
+                                        <TextBlock Text="{Binding ControllerDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                   Style="{StaticResource SessionBodyStyle}" />
+                                        <TextBlock Text="Calibration Progress"
+                                                   Style="{StaticResource SessionMicroLabelStyle}"
+                                                   Margin="0,10,0,0" />
+                                        <ProgressBar Height="8"
+                                                     Maximum="100"
+                                                     Value="{Binding ControllerCalibrationPercent, Mode=OneWay}"
+                                                     Foreground="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                        <TextBlock Text="{Binding ControllerCalibrationLabel}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding ControllerCalibrationQualitySummary}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,8,0,0"
+                                                   Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
+                                        <TextBlock Text="{Binding ControllerCalibrationQualityMetrics}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,6,0,0"
+                                                   Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
+                                        <TextBlock Text="{Binding ControllerCalibrationQualityExpectation}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,6,0,0"
+                                                   Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
+                                        <TextBlock Text="{Binding ControllerCalibrationQualityCause}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,6,0,0"
+                                                   Visibility="{Binding HasControllerCalibrationQualityCause, Converter={StaticResource BoolToVisibility}}" />
+                                        <TextBlock Text="{Binding ControllerCalibrationQualityDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,6,0,0"
+                                                   Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
+                                        <TextBlock Text="Mode"
+                                                   Style="{StaticResource SessionMicroLabelStyle}"
+                                                   Margin="0,10,0,0" />
+                                        <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationModeSummary}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,4,0,0" />
+                                        <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationModeDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,4,0,0" />
+                                        <TextBlock Text="Acceptance Gate"
+                                                   Style="{StaticResource SessionMicroLabelStyle}"
+                                                   Margin="0,10,0,0" />
+                                        <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationAcceptanceSummary}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,4,0,0" />
+                                        <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationAcceptanceDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,4,0,0" />
+                                        <TextBlock Text="Latest Apply"
+                                                   Style="{StaticResource SessionMicroLabelStyle}"
+                                                   Margin="0,10,0,0" />
+                                        <TextBlock Text="{Binding ControllerBreathingProfiles.ApplySummary}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,4,0,0" />
+                                        <TextBlock Text="{Binding ControllerBreathingProfiles.ApplyDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2"
+                                Style="{StaticResource PanelBorderStyle}"
+                                Background="{Binding CoherenceLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding CoherenceLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Coherence"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding CoherenceSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding CoherenceLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <ProgressBar Margin="0,10,0,0"
+                                             Height="8"
+                                             Maximum="100"
+                                             Value="{Binding CoherencePercent, Mode=OneWay}"
+                                             Foreground="{Binding CoherenceLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                <TextBlock Text="{Binding CoherenceValueLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,8,0,0" />
+                                <Expander x:Name="CoherenceDetailExpander"
+                                          Margin="0,10,0,0">
+                                    <Expander.Header>
+                                        <TextBlock Text="Detail"
+                                                   Style="{StaticResource SessionMicroLabelStyle}" />
+                                    </Expander.Header>
+                                    <StackPanel Margin="0,6,0,0">
+                                        <TextBlock Text="{Binding CoherenceRouteSummary}"
+                                                   Style="{StaticResource SessionBodyStyle}" />
+                                        <TextBlock Text="{Binding CoherenceDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                   Style="{StaticResource SessionBodyStyle}"
+                                                   Margin="0,6,0,0" />
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0"
+                                Style="{StaticResource PanelBorderStyle}"
+                                Background="{Binding ParticlesLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding ParticlesLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Particle Visibility"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding ParticlesSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding ParticlesLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <Button Content="{Binding ParticlesToggleActionLabel}"
+                                        Command="{Binding ToggleParticlesCommand}"
+                                        IsEnabled="{Binding CanToggleParticles}"
+                                        Style="{StaticResource StateActionButtonStyle}"
+                                        Tag="{Binding ParticlesToggleActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
+                                        Margin="0,12,0,0" />
+                                <Expander x:Name="ParticlesDetailExpander"
+                                          Margin="0,12,0,0">
+                                    <Expander.Header>
+                                        <TextBlock Text="Detail"
+                                                   Style="{StaticResource SessionMicroLabelStyle}" />
+                                    </Expander.Header>
+                                    <TextBlock Text="{Binding ParticlesDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource SessionBodyStyle}"
+                                               Margin="0,6,0,0" />
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2"
+                                Style="{StaticResource PanelBorderStyle}"
+                                Background="{Binding RecenterLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding RecenterLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Recenter"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding RecenterSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding RecenterLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <ProgressBar Margin="0,10,0,0"
+                                             Height="8"
+                                             Maximum="100"
+                                             Value="{Binding RecenterDistancePercent, Mode=OneWay}"
+                                             Foreground="{Binding RecenterLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                <TextBlock Text="{Binding RecenterDistanceLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,8,0,0" />
+                                <Button Content="Send Recenter"
+                                        Command="{Binding RecenterCommand}"
+                                        IsEnabled="{Binding CanSendRecenterCommand}"
+                                        Margin="0,12,0,0" />
+                                <Expander x:Name="RecenterDetailExpander"
+                                          Margin="0,12,0,0">
+                                    <Expander.Header>
+                                        <TextBlock Text="Detail"
+                                                   Style="{StaticResource SessionMicroLabelStyle}" />
+                                    </Expander.Header>
+                                    <TextBlock Text="{Binding RecenterDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource SessionBodyStyle}"
+                                               Margin="0,6,0,0" />
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0"
+                                Style="{StaticResource PanelBorderStyle}"
+                                Background="{Binding QuestScreenshotLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding QuestScreenshotLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Quest Screenshot"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding QuestScreenshotSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding QuestScreenshotLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <Image Source="{Binding QuestScreenshotPreview}"
+                                       Stretch="Uniform"
+                                       MaxHeight="220"
+                                       Margin="0,10,0,0" />
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Button Content="Capture Quest Screenshot"
+                                            Command="{Binding CaptureQuestScreenshotCommand}"
+                                            IsEnabled="{Binding CanCaptureQuestScreenshot}" />
+                                    <Button Content="Open Last Screenshot"
+                                            Command="{Binding OpenLastQuestScreenshotCommand}"
+                                            IsEnabled="{Binding CanOpenLastQuestScreenshot}" />
+                                </WrapPanel>
+                                <Expander x:Name="QuestScreenshotDetailExpander"
+                                          Margin="0,12,0,0">
+                                    <Expander.Header>
+                                        <TextBlock Text="Detail"
+                                                   Style="{StaticResource SessionMicroLabelStyle}" />
+                                    </Expander.Header>
+                                    <StackPanel Margin="0,6,0,0">
+                                        <TextBlock Text="{Binding QuestScreenshotDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                   Style="{StaticResource SessionBodyStyle}" />
+                                        <TextBlock Text="Latest Screenshot Path"
+                                                   Style="{StaticResource SessionMicroLabelStyle}"
+                                                   Margin="0,10,0,0" />
+                                        <TextBlock Text="{Binding QuestScreenshotPath}"
+                                                   Style="{StaticResource SessionCodeStyle}"
+                                                   Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2"
+                                Style="{StaticResource PanelBorderStyle}"
+                                Background="{Binding ClockAlignmentLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding ClockAlignmentLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Latest Clock Probe"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding ClockAlignmentSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding ClockAlignmentLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ClockAlignmentProgressLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding ClockAlignmentProbeStatsLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding ClockAlignmentOffsetStatsLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding ClockAlignmentRoundTripStatsLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,6,0,0" />
+                                <Expander x:Name="ClockProbeDetailExpander"
+                                          Margin="0,12,0,0">
+                                    <Expander.Header>
+                                        <TextBlock Text="Detail"
+                                                   Style="{StaticResource SessionMicroLabelStyle}" />
+                                    </Expander.Header>
+                                    <TextBlock Text="{Binding ClockAlignmentDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource SessionBodyStyle}"
+                                               Margin="0,6,0,0" />
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Expander Grid.Row="4"
+                  IsExpanded="False">
+            <Expander.Header>
+                <TextBlock Text="Operator Log"
+                           Style="{StaticResource SectionTitleStyle}"
+                           Margin="0" />
+            </Expander.Header>
+            <Border Style="{StaticResource PanelBorderStyle}"
+                    Margin="0,8,0,0"
+                    Padding="0">
+                <ListBox ItemsSource="{Binding Logs}"
+                         MaxHeight="180">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="10,8">
+                                <TextBlock Text="{Binding Message}"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding Level, Converter={StaticResource LogLevelToBrush}}" />
+                                <TextBlock Text="{Binding Detail}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,4,0,0" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+        </Expander>
+    </Grid>
+</Window>

@@ -1,0 +1,407 @@
+<#
+.SYNOPSIS
+    Builds the DOPE Companion MSIX package and optional App Installer file.
+#>
+[CmdletBinding()]
+param(
+    [ValidateSet('Release')]
+    [string]$Configuration = 'Release',
+    [ValidateSet('x64')]
+    [string]$Platform = 'x64',
+    [string]$Version = '0.1.58.0',
+    [string]$PackageId = 'MesmerPrism.DopeCompanionPreview',
+    [string]$Publisher = 'CN=MesmerPrism',
+    [string]$DisplayName = 'DOPE Companion Preview',
+    [string]$PublisherDisplayName = 'Mesmer Prism',
+    [string]$OutputRelativePath = 'artifacts\windows-installer',
+    [string]$PackageFileName = 'DopeCompanion.msix',
+    [string]$AppInstallerFileName = 'DopeCompanion.appinstaller',
+    [string]$CertificateFileName = 'DopeCompanion.cer',
+    [string]$AppInstallerUri,
+    [string]$MainPackageUri,
+    [string]$PackageCertificatePath,
+    [string]$PackageCertificatePassword,
+    [string]$PackageCertificateTimestampUrl,
+    [switch]$RefreshBundledDopeApk,
+    [string]$BundledDopeApkSourcePath,
+    [string]$BundledDopeApkVersion,
+    [switch]$Unsigned
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$defaultTimestampUrl = 'http://timestamp.digicert.com'
+
+function Find-MSBuild {
+    $command = Get-Command msbuild -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $wellKnownPaths = @(
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe')
+    )
+    foreach ($path in $wellKnownPaths) {
+        if (Test-Path $path) {
+            return $path
+        }
+    }
+
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path $vswhere) {
+        $matches = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe'
+        if ($LASTEXITCODE -eq 0 -and $matches) {
+            return $matches | Select-Object -First 1
+        }
+
+        $matches = & $vswhere -latest -products * -find 'MSBuild\**\Bin\MSBuild.exe'
+        if ($LASTEXITCODE -eq 0 -and $matches) {
+            return $matches | Select-Object -First 1
+        }
+    }
+
+    throw 'MSBuild.exe was not found. Install Visual Studio Build Tools with the MSIX/Desktop Bridge workload, or run this in GitHub Actions on windows-latest.'
+}
+
+function Find-WindowsSdkTool {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ToolName
+    )
+
+    $command = Get-Command $ToolName -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+    if (Test-Path $kitsRoot) {
+        $tool = Get-ChildItem -Path $kitsRoot -Recurse -Filter $ToolName -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+        if ($null -ne $tool) {
+            return $tool.FullName
+        }
+    }
+
+    throw "$ToolName was not found. Install the Windows 10/11 SDK packaging tools."
+}
+
+function Invoke-SignToolSign {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SignToolPath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePassword,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+        [string]$TimestampUrl
+    )
+
+    $signArgs = @(
+        'sign',
+        '/fd', 'SHA256',
+        '/f', [System.IO.Path]::GetFullPath($CertificatePath),
+        '/p', $CertificatePassword
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($TimestampUrl)) {
+        $signArgs += @('/tr', $TimestampUrl, '/td', 'SHA256')
+    }
+
+    $signArgs += [System.IO.Path]::GetFullPath($TargetPath)
+
+    & $SignToolPath @signArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "signtool sign failed for $TargetPath with exit code $LASTEXITCODE"
+    }
+}
+
+function Sign-UnsignedPayloadFiles {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PayloadRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$SignToolPath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePassword,
+        [string]$TimestampUrl
+    )
+
+    $unsignedPayloadFiles = @(
+        Get-ChildItem -Path $PayloadRoot -Recurse -File |
+            Where-Object { $_.Extension -in '.dll', '.exe' } |
+            Where-Object { $null -eq (Get-AuthenticodeSignature -FilePath $_.FullName).SignerCertificate }
+    )
+
+    if ($unsignedPayloadFiles.Count -eq 0) {
+        Write-Host "No unsigned executable payload files were found under $PayloadRoot" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Signing $($unsignedPayloadFiles.Count) previously unsigned executable payload file(s) under $PayloadRoot" -ForegroundColor Cyan
+    foreach ($payloadFile in $unsignedPayloadFiles) {
+        Invoke-SignToolSign `
+            -SignToolPath $SignToolPath `
+            -CertificatePath $CertificatePath `
+            -CertificatePassword $CertificatePassword `
+            -TargetPath $payloadFile.FullName `
+            -TimestampUrl $TimestampUrl
+    }
+}
+
+function Initialize-DotNetSdkResolver {
+    $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+    if (-not $dotnetCommand) {
+        return
+    }
+
+    $dotnetRoot = Split-Path -Parent $dotnetCommand.Source
+    $sdkRoot = Join-Path $dotnetRoot 'sdk'
+    if (-not (Test-Path $sdkRoot)) {
+        return
+    }
+
+    $sdkDir = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^10\.' -and (Test-Path (Join-Path $_.FullName 'Sdks')) } |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+
+    if ($null -eq $sdkDir) {
+        return
+    }
+
+    $env:DOTNET_ROOT = $dotnetRoot
+    $env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR = $dotnetRoot
+    $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR = Join-Path $sdkDir.FullName 'Sdks'
+    $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER = $sdkDir.Name
+}
+
+function Set-ManifestValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [xml]$Manifest,
+        [Parameter(Mandatory = $true)]
+        [string]$XPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+        [Parameter(Mandatory = $true)]
+        [System.Xml.XmlNamespaceManager]$NamespaceManager
+    )
+
+    $node = $Manifest.SelectSingleNode($XPath, $NamespaceManager)
+    if ($null -eq $node) {
+        throw "Manifest node not found: $XPath"
+    }
+
+    $node.Value = $Value
+}
+
+if (([string]::IsNullOrWhiteSpace($AppInstallerUri)) -xor ([string]::IsNullOrWhiteSpace($MainPackageUri))) {
+    throw 'AppInstallerUri and MainPackageUri must either both be provided or both be omitted.'
+}
+
+if (-not $Unsigned) {
+    if ([string]::IsNullOrWhiteSpace($PackageCertificatePath) -or [string]::IsNullOrWhiteSpace($PackageCertificatePassword)) {
+        throw 'Signed package builds require PackageCertificatePath and PackageCertificatePassword.'
+    }
+
+    $PackageCertificatePassword = $PackageCertificatePassword.TrimEnd("`r", "`n")
+
+    if ([string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
+        $PackageCertificateTimestampUrl = $defaultTimestampUrl
+        Write-Host "No timestamp URL was provided. Defaulting to $PackageCertificateTimestampUrl for package signing." -ForegroundColor Yellow
+    }
+}
+
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+$entryProjectPath = Join-Path $repoRoot 'src\DopeCompanion.App\DopeCompanion.App.csproj'
+$packageProjectDir = Join-Path $repoRoot 'src\DopeCompanion.App.Package'
+$packageProjectPath = Join-Path $packageProjectDir 'DopeCompanion.App.Package.wapproj'
+$packageLayoutRoot = Join-Path $packageProjectDir "bin\$Platform\$Configuration"
+$packagePayloadRoot = Join-Path $packageLayoutRoot 'DopeCompanion.App'
+$manifestPath = Join-Path $packageProjectDir 'Package.appxmanifest'
+$appInstallerTemplatePath = Join-Path $packageProjectDir 'Package.appinstaller.template'
+$appPackagesRoot = Join-Path $packageProjectDir 'AppPackages'
+$outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
+$syncBundledDopeApkScriptPath = Join-Path $repoRoot 'tools\app\Sync-Bundled-Dope-Apk.ps1'
+
+if (-not (Test-Path $packageProjectPath)) {
+    throw "Packaging project not found at $packageProjectPath"
+}
+
+if (-not (Test-Path $entryProjectPath)) {
+    throw "Entry project not found at $entryProjectPath"
+}
+
+if (-not (Test-Path $manifestPath)) {
+    throw "Package manifest not found at $manifestPath"
+}
+
+if ($RefreshBundledDopeApk -or -not [string]::IsNullOrWhiteSpace($BundledDopeApkSourcePath)) {
+    if (-not (Test-Path $syncBundledDopeApkScriptPath)) {
+        throw "Bundled DOPE APK sync script not found at $syncBundledDopeApkScriptPath"
+    }
+
+    $syncArgs = @{}
+    if (-not [string]::IsNullOrWhiteSpace($BundledDopeApkSourcePath)) {
+        $syncArgs['SourceApkPath'] = $BundledDopeApkSourcePath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($BundledDopeApkVersion)) {
+        $syncArgs['VersionName'] = $BundledDopeApkVersion
+    }
+
+    Write-Host 'Refreshing bundled DOPE APK metadata before packaging...' -ForegroundColor Cyan
+    & $syncBundledDopeApkScriptPath @syncArgs
+}
+
+Initialize-DotNetSdkResolver
+
+New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
+if (Test-Path $appPackagesRoot) {
+    Remove-Item -Recurse -Force $appPackagesRoot
+}
+
+$originalManifest = Get-Content $manifestPath -Raw
+$originalManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
+
+try {
+    [xml]$manifest = $originalManifest
+    $namespaceManager = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+    $namespaceManager.AddNamespace('appx', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+    $namespaceManager.AddNamespace('uap', 'http://schemas.microsoft.com/appx/manifest/uap/windows10')
+
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Identity/@Name' -Value $PackageId -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Identity/@Publisher' -Value $Publisher -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Identity/@Version' -Value $Version -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Properties/appx:DisplayName/text()' -Value $DisplayName -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Properties/appx:PublisherDisplayName/text()' -Value $PublisherDisplayName -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Applications/appx:Application/uap:VisualElements/@DisplayName' -Value $DisplayName -NamespaceManager $namespaceManager
+    $manifest.Save($manifestPath)
+
+    Write-Host "Restoring DopeCompanion.App for win-$Platform runtime packs..." -ForegroundColor Cyan
+    dotnet restore $entryProjectPath -r "win-$Platform" | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet restore failed for $entryProjectPath with exit code $LASTEXITCODE"
+    }
+
+    $msbuildPath = Find-MSBuild
+    $msbuildArgs = @(
+        $packageProjectPath,
+        '/restore',
+        "/p:Configuration=$Configuration",
+        "/p:Platform=$Platform",
+        '/p:UapAppxPackageBuildMode=SideLoadOnly',
+        '/p:AppxBundle=Never',
+        "/p:AppxPackageDir=$appPackagesRoot\",
+        "/p:RuntimeIdentifier=win-$Platform",
+        "/p:Version=$Version",
+        "/p:AssemblyVersion=$Version",
+        "/p:FileVersion=$Version",
+        "/p:InformationalVersion=$Version",
+        "/p:GenerateAppInstallerFile=False",
+        '/p:AppxPackageSigningEnabled=False'
+    )
+
+    Write-Host "Building MSIX package with $msbuildPath" -ForegroundColor Cyan
+    & $msbuildPath @msbuildArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "MSIX package build failed with exit code $LASTEXITCODE"
+    }
+
+    $packageOutputPath = Join-Path $outputPath $PackageFileName
+    if (Test-Path $packageOutputPath) {
+        Remove-Item -Force $packageOutputPath
+    }
+
+    if (-not (Test-Path $packageLayoutRoot)) {
+        throw "Package layout root was not produced at $packageLayoutRoot"
+    }
+
+    if (-not (Test-Path $packagePayloadRoot)) {
+        throw "Packaged desktop payload was not produced at $packagePayloadRoot"
+    }
+
+    $makeAppxPath = Find-WindowsSdkTool -ToolName 'makeappx.exe'
+    if (-not $Unsigned) {
+        $signToolPath = Find-WindowsSdkTool -ToolName 'signtool.exe'
+        Sign-UnsignedPayloadFiles `
+            -PayloadRoot $packagePayloadRoot `
+            -SignToolPath $signToolPath `
+            -CertificatePath $PackageCertificatePath `
+            -CertificatePassword $PackageCertificatePassword `
+            -TimestampUrl $PackageCertificateTimestampUrl
+    }
+
+    $makeAppxArgs = @(
+        'pack',
+        '/o',
+        '/d', [System.IO.Path]::GetFullPath($packageLayoutRoot),
+        '/p', [System.IO.Path]::GetFullPath($packageOutputPath)
+    )
+
+    Write-Host "Packing MSIX from layout at $packageLayoutRoot with $makeAppxPath" -ForegroundColor Cyan
+    & $makeAppxPath @makeAppxArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "makeappx pack failed with exit code $LASTEXITCODE"
+    }
+
+    if (-not $Unsigned) {
+        Write-Host "Signing package with $signToolPath" -ForegroundColor Cyan
+        Invoke-SignToolSign `
+            -SignToolPath $signToolPath `
+            -CertificatePath $PackageCertificatePath `
+            -CertificatePassword $PackageCertificatePassword `
+            -TargetPath $packageOutputPath `
+            -TimestampUrl $PackageCertificateTimestampUrl
+    }
+
+    Write-Host "Copied package to $packageOutputPath" -ForegroundColor Green
+
+    if (-not [string]::IsNullOrWhiteSpace($AppInstallerUri)) {
+        $template = Get-Content $appInstallerTemplatePath -Raw
+        $appInstaller = $template.
+            Replace('{AppInstallerUri}', $AppInstallerUri).
+            Replace('{Version}', $Version).
+            Replace('{Name}', $PackageId).
+            Replace('{Publisher}', $Publisher).
+            Replace('{ProcessorArchitecture}', $Platform).
+            Replace('{MainPackageUri}', $MainPackageUri)
+
+        $appInstallerOutputPath = Join-Path $outputPath $AppInstallerFileName
+        Set-Content -Path $appInstallerOutputPath -Value $appInstaller -Encoding utf8
+        Write-Host "Wrote App Installer file to $appInstallerOutputPath" -ForegroundColor Green
+    }
+
+    if (-not $Unsigned -and -not [string]::IsNullOrWhiteSpace($CertificateFileName)) {
+        $resolvedCertificatePath = [System.IO.Path]::GetFullPath($PackageCertificatePath)
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $resolvedCertificatePath,
+            $PackageCertificatePassword,
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+
+        try {
+            $certificateBytes = $certificate.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+            $certificateOutputPath = Join-Path $outputPath $CertificateFileName
+            [System.IO.File]::WriteAllBytes($certificateOutputPath, $certificateBytes)
+            Write-Host "Exported public certificate to $certificateOutputPath" -ForegroundColor Green
+        }
+        finally {
+            $certificate.Dispose()
+        }
+    }
+}
+finally {
+    [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
+}

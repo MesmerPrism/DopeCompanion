@@ -1,0 +1,25 @@
+{
+  "defaultPackageIds": [
+    "com.tillh.dynamicoscillatorypatternentrainment"
+  ],
+  "profiles": [
+    {
+      "id": "dope_projected_feed_colorama_baseline",
+      "label": "DOPE Projected Feed Colorama Baseline",
+      "file": "dope-projected-feed-colorama-baseline.csv",
+      "version": "2026.04.17",
+      "channel": "public",
+      "studyLock": false,
+      "description": "Public baseline for the projected-feed multi-layer Colorama quad scene. Mirrors the authored scene defaults from Dynamic Oscillatory Pattern Entrainment for the current bundled APK."
+    },
+    {
+      "id": "dope_projected_feed_colorama_quality",
+      "label": "DOPE Projected Feed Colorama Quality",
+      "file": "dope-projected-feed-colorama-quality.csv",
+      "version": "2026.04.17",
+      "channel": "public",
+      "studyLock": false,
+      "description": "Higher-intensity projected-feed Colorama variant with slightly wider overlay coverage and stronger gradient/displacement motion for supervised scene iteration."
+    }
+  ]
+}

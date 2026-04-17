@@ -1,0 +1,1657 @@
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using System.Windows;
+using System.Windows.Threading;
+using Microsoft.Win32;
+using DopeCompanion.Core.Models;
+using DopeCompanion.Core.Services;
+
+namespace DopeCompanion.App.ViewModels;
+
+public sealed class DopeControllerBreathingProfilesWorkspaceViewModel : ObservableObject, IDisposable
+{
+    private const string BundledProfileIdPrefix = "__bundled_dope_controller_breathing_profile__::";
+    private const string UsePrincipalAxisCalibrationFieldId = "use_principal_axis_calibration";
+    private const string MinAcceptedDeltaFieldId = "min_accepted_delta";
+    private const string MinAcceptableTravelFieldId = "min_acceptable_travel";
+
+    private readonly StudyShellDefinition _study;
+    private readonly IQuestControlService _questService;
+    private readonly ITwinModeBridge? _twinBridge;
+    private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
+    private readonly DopeControllerBreathingTuningCompiler? _compiler;
+    private readonly DopeControllerBreathingProfileStore? _profileStore;
+    private readonly DopeControllerBreathingProfileApplyStateStore? _applyStateStore;
+    private readonly DopeControllerBreathingProfileStartupStateStore? _startupStateStore;
+    private readonly DispatcherTimer? _persistTimer;
+
+    private bool _initialized;
+    private bool _suppressEditorPersistence;
+    private bool _persistPending;
+    private IReadOnlyDictionary<string, string> _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private DopeControllerBreathingProfileApplyRecord? _lastApplyRecord;
+    private DopeControllerBreathingProfileListItemViewModel? _selectedProfile;
+    private string _selectedProfileName = string.Empty;
+    private string _selectedProfileNotes = string.Empty;
+    private string _librarySummary = "Loading Dope controller-breathing profiles...";
+    private string _libraryDetail = "The Dope shell stores one self-describing json file per controller-breathing profile.";
+    private OperationOutcomeKind _libraryLevel = OperationOutcomeKind.Preview;
+    private string _applySummary = "No Dope controller-breathing profile has been applied yet.";
+    private string _applyDetail = "Select or create a profile, then upload it through the normal Dope hotload path.";
+    private OperationOutcomeKind _applyLevel = OperationOutcomeKind.Preview;
+    private string _lastCompiledCsvPath = "No Dope controller-breathing hotload CSV written yet.";
+    private string _templatePathLabel = "Bundled Dope controller-breathing tuning template not found.";
+    private string _libraryRootLabel = string.Empty;
+    private DopeControllerBreathingProfileStartupState? _startupState;
+
+    public DopeControllerBreathingProfilesWorkspaceViewModel(
+        StudyShellDefinition study,
+        IQuestControlService questService,
+        ITwinModeBridge? twinBridge = null)
+    {
+        _study = study;
+        _questService = questService;
+        _twinBridge = twinBridge;
+
+        try
+        {
+            string? templatePath = AppAssetLocator.TryResolveDopeControllerBreathingTuningTemplatePath();
+            if (!string.IsNullOrWhiteSpace(templatePath))
+            {
+                var templateJson = File.ReadAllText(templatePath);
+                _compiler = new DopeControllerBreathingTuningCompiler(templateJson);
+                _profileStore = new DopeControllerBreathingProfileStore(_compiler);
+                _applyStateStore = new DopeControllerBreathingProfileApplyStateStore(_study.Id);
+                _startupStateStore = new DopeControllerBreathingProfileStartupStateStore(_study.Id);
+                _lastApplyRecord = _applyStateStore.Load();
+                _startupState = _startupStateStore.Load();
+                _templatePathLabel = templatePath;
+                _libraryRootLabel = _profileStore.RootPath;
+                BuildEditorGroups();
+                _librarySummary = "Dope controller-breathing profile library ready.";
+                _libraryDetail = "Create or import named controller-breathing profiles, or start from the read-only examples bundled with this release.";
+                _libraryLevel = OperationOutcomeKind.Success;
+            }
+            else
+            {
+                _librarySummary = "Dope controller-breathing profile template missing.";
+                _libraryDetail = "The shell could not resolve the bundled dope-controller-breathing-tuning-v1.template.json asset.";
+                _libraryLevel = OperationOutcomeKind.Warning;
+            }
+        }
+        catch (Exception ex)
+        {
+            _librarySummary = "Dope controller-breathing profile library unavailable.";
+            _libraryDetail = ex.Message;
+            _libraryLevel = OperationOutcomeKind.Failure;
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is not null)
+        {
+            _persistTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(350)
+            };
+            _persistTimer.Tick += OnPersistTimerTick;
+        }
+
+        NewFromBaselineCommand = new AsyncRelayCommand(NewFromBaselineAsync, () => IsAvailable);
+        DuplicateSelectedCommand = new AsyncRelayCommand(DuplicateSelectedAsync, () => SelectedProfile is not null && IsAvailable);
+        RenameSelectedCommand = new AsyncRelayCommand(RenameSelectedAsync, () => SelectedProfile is not null && !string.IsNullOrWhiteSpace(SelectedProfileName) && IsAvailable);
+        ImportProfileCommand = new AsyncRelayCommand(ImportProfileAsync, () => IsAvailable);
+        ExportSelectedCommand = new AsyncRelayCommand(ExportSelectedAsync, () => SelectedProfile is not null && IsAvailable);
+        SetStartupProfileCommand = new AsyncRelayCommand(SetStartupProfileAsync, () => SelectedProfile is not null && !IsSelectedProfileStartupDefault && IsAvailable);
+        UseBundledStartupCommand = new AsyncRelayCommand(UseBundledStartupAsync, () => HasPinnedStartupProfile && IsAvailable);
+        OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, () => IsAvailable && !string.IsNullOrWhiteSpace(LibraryRootLabel));
+        DeleteSelectedCommand = new AsyncRelayCommand(DeleteSelectedAsync, () => SelectedProfile is { IsWritableLocalProfile: true } && IsAvailable);
+        ApplySelectedCommand = new AsyncRelayCommand(ApplySelectedAsync, () => SelectedProfile is not null && IsAvailable);
+        ResetFieldCommand = new AsyncRelayCommand(ResetFieldAsync, parameter => parameter is DopeControllerBreathingProfileFieldViewModel && IsAvailable);
+        UseDynamicAxisCalibrationCommand = new AsyncRelayCommand(UseDynamicAxisCalibrationAsync, () => IsAvailable);
+        UseFixedOrientationCalibrationCommand = new AsyncRelayCommand(UseFixedOrientationCalibrationAsync, () => IsAvailable);
+    }
+
+    public event EventHandler? StartupProfileChanged;
+
+    public bool IsAvailable => _compiler is not null && _profileStore is not null;
+
+    public ObservableCollection<DopeControllerBreathingProfileListItemViewModel> Profiles { get; } = new();
+    public ObservableCollection<DopeControllerBreathingProfileGroupViewModel> Groups { get; } = new();
+    public ObservableCollection<DopeControllerBreathingComparisonRowViewModel> ComparisonRows { get; } = new();
+
+    public string LibrarySummary
+    {
+        get => _librarySummary;
+        private set => SetProperty(ref _librarySummary, value);
+    }
+
+    public string LibraryDetail
+    {
+        get => _libraryDetail;
+        private set => SetProperty(ref _libraryDetail, value);
+    }
+
+    public OperationOutcomeKind LibraryLevel
+    {
+        get => _libraryLevel;
+        private set => SetProperty(ref _libraryLevel, value);
+    }
+
+    public string ApplySummary
+    {
+        get => _applySummary;
+        private set => SetProperty(ref _applySummary, value);
+    }
+
+    public string ApplyDetail
+    {
+        get => _applyDetail;
+        private set => SetProperty(ref _applyDetail, value);
+    }
+
+    public OperationOutcomeKind ApplyLevel
+    {
+        get => _applyLevel;
+        private set => SetProperty(ref _applyLevel, value);
+    }
+
+    public string LastCompiledCsvPath
+    {
+        get => _lastCompiledCsvPath;
+        private set => SetProperty(ref _lastCompiledCsvPath, value);
+    }
+
+    public string TemplatePathLabel
+    {
+        get => _templatePathLabel;
+        private set => SetProperty(ref _templatePathLabel, value);
+    }
+
+    public string LibraryRootLabel
+    {
+        get => _libraryRootLabel;
+        private set => SetProperty(ref _libraryRootLabel, value);
+    }
+
+    public DopeControllerBreathingProfileListItemViewModel? SelectedProfile
+    {
+        get => _selectedProfile;
+        set
+        {
+            if (ReferenceEquals(_selectedProfile, value))
+            {
+                return;
+            }
+
+            FlushPendingCurrentProfileSave();
+            if (SetProperty(ref _selectedProfile, value))
+            {
+                LoadSelectedProfileIntoEditor(value);
+                NotifyStartupStateChanged();
+                RaiseCommandStates();
+            }
+        }
+    }
+
+    public string SelectedProfileName
+    {
+        get => _selectedProfileName;
+        set
+        {
+            if (SetProperty(ref _selectedProfileName, value))
+            {
+                SchedulePersist();
+                RaiseCommandStates();
+                RefreshComparisonState();
+            }
+        }
+    }
+
+    public string SelectedProfileNotes
+    {
+        get => _selectedProfileNotes;
+        set
+        {
+            if (SetProperty(ref _selectedProfileNotes, value))
+            {
+                SchedulePersist();
+            }
+        }
+    }
+
+    public bool HasPinnedStartupProfile => _startupState is not null;
+
+    public bool IsSelectedProfileStartupDefault
+        => TryCreateCurrentDocument(out var selectedDocument, out _) &&
+           SelectedProfile is not null &&
+           DopeControllerBreathingStartupSnapshotResolver.MatchesCurrentSelection(
+               _compiler!,
+               _startupState,
+               SelectedProfile.Id,
+               selectedDocument!,
+               ResolvePinnedStartupProfile()?.Document);
+
+    public string StartupProfileSummary
+        => _startupState is null
+            ? "Next-launch override: bundled Dope controller-breathing baseline."
+            : $"Next-launch override: {_startupState.ProfileName}.";
+
+    public string StartupProfileDetail
+        => _startupState is null
+            ? "Dope launches on the bundled controller-breathing baseline. Use the startup button to save the current editor values for future Dope launches from this shell. The override may land a few seconds after Dope starts. Applying values during the current session does not change that launch override."
+            : $"This shell will auto-apply the saved launch override '{_startupState.ProfileName}' when you launch the Dope APK here. The runtime may briefly show the bundled baseline before the override lands. Applying values during the current session does not change that launch override. The runtime will still reset controller-breathing calibration after apply, so recalibrate on-headset before a participant run.";
+
+    public string StartupProfileActionLabel
+        => IsSelectedProfileStartupDefault
+            ? "Current Values Saved For Next Launch"
+            : "Save Current Values For Next Launch";
+
+    public AsyncRelayCommand NewFromBaselineCommand { get; }
+    public AsyncRelayCommand DuplicateSelectedCommand { get; }
+    public AsyncRelayCommand RenameSelectedCommand { get; }
+    public AsyncRelayCommand ImportProfileCommand { get; }
+    public AsyncRelayCommand ExportSelectedCommand { get; }
+    public AsyncRelayCommand SetStartupProfileCommand { get; }
+    public AsyncRelayCommand UseBundledStartupCommand { get; }
+    public AsyncRelayCommand OpenFolderCommand { get; }
+    public AsyncRelayCommand DeleteSelectedCommand { get; }
+    public AsyncRelayCommand ApplySelectedCommand { get; }
+    public AsyncRelayCommand ResetFieldCommand { get; }
+    public AsyncRelayCommand UseDynamicAxisCalibrationCommand { get; }
+    public AsyncRelayCommand UseFixedOrientationCalibrationCommand { get; }
+
+    public bool IsDynamicMotionAxisSelected => TryGetCurrentControlValue(UsePrincipalAxisCalibrationFieldId, out var value)
+        ? value >= 0.5d
+        : true;
+
+    public bool IsFixedControllerOrientationSelected => !IsDynamicMotionAxisSelected;
+
+    public string CalibrationModeSummary
+        => FindField(UsePrincipalAxisCalibrationFieldId) is null
+            ? "Calibration mode not loaded yet."
+            : IsDynamicMotionAxisSelected
+                ? "Dynamic motion axis selected."
+                : "Fixed controller orientation selected.";
+
+    public string CalibrationModeDetail
+    {
+        get
+        {
+            var modeField = FindField(UsePrincipalAxisCalibrationFieldId);
+            if (modeField is null)
+            {
+                return "Create or select a controller-breathing profile to choose the calibration mode.";
+            }
+
+            var modeExplanation = IsDynamicMotionAxisSelected
+                ? "Calibration solves the breathing axis from the recorded controller movement."
+                : "Calibration keeps the warmed-up controller orientation instead of solving a motion axis.";
+            var confirmation = modeField.ConfirmationLabel switch
+            {
+                "Confirmed" => "The headset has confirmed this mode.",
+                "Waiting" => "The headset has not confirmed this mode yet.",
+                "Edited" => "Apply to current session to send this mode to the headset now.",
+                "Mismatch" => "The headset is still reporting a different mode.",
+                _ => "Apply to current session to send this mode to the headset now."
+            };
+
+            return $"{modeExplanation} {confirmation}".Trim();
+        }
+    }
+
+    public string CalibrationAcceptanceSummary
+    {
+        get
+        {
+            var hasAcceptedMovement = TryGetCurrentControlValue(MinAcceptedDeltaFieldId, out var minAcceptedDelta);
+            var hasMinimumTravel = TryGetCurrentControlValue(MinAcceptableTravelFieldId, out var minAcceptableTravel);
+            if (!hasAcceptedMovement || !hasMinimumTravel)
+            {
+                return "Acceptance thresholds are not loaded yet.";
+            }
+
+            var acceptedMovement = hasAcceptedMovement
+                ? $"{(minAcceptedDelta * 1000d).ToString("0.###", CultureInfo.InvariantCulture)} mm"
+                : "n/a";
+            var minimumTravel = hasMinimumTravel
+                ? $"{(minAcceptableTravel * 100d).ToString("0.###", CultureInfo.InvariantCulture)} cm"
+                : "n/a";
+            return $"Acceptance gate: {acceptedMovement} per accepted movement sample, {minimumTravel} minimum calibration travel.";
+        }
+    }
+
+    public string CalibrationAcceptanceDetail
+        => "Use the Controller Breathing profile table to tune how much motion counts as meaningful movement during calibration and how much total excursion the headset must see before it accepts the result.";
+
+    public string CalibrationSetupSummary => $"{CalibrationModeSummary} {CalibrationAcceptanceSummary}".Trim();
+
+    public string CalibrationSetupDetail => $"{CalibrationModeDetail} {CalibrationAcceptanceDetail}".Trim();
+
+    public async Task InitializeAsync()
+    {
+        if (_initialized || !IsAvailable)
+        {
+            return;
+        }
+
+        _initialized = true;
+        await ReloadProfilesAsync();
+        RefreshComparisonState(syncCurrentValueText: true);
+    }
+
+    public void RefreshReportedTwinState(IReadOnlyDictionary<string, string> reportedTwinState)
+    {
+        _reportedTwinState = new Dictionary<string, string>(reportedTwinState, StringComparer.OrdinalIgnoreCase);
+        RefreshComparisonState();
+        NotifyCalibrationSetupStateChanged();
+    }
+
+    public DopeControllerBreathingSessionSnapshot CaptureSessionSnapshot()
+    {
+        var currentProfile = CreateCurrentProfileRecord();
+        var selectedMatchesLastApplied = currentProfile is not null &&
+                                         _lastApplyRecord is not null &&
+                                         string.Equals(currentProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase);
+        var reportedValues = _compiler is null
+            ? new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, double?>(
+                _compiler.ExtractReportedValues(_reportedTwinState),
+                StringComparer.OrdinalIgnoreCase);
+
+        var hasUnappliedEdits = false;
+        if (_compiler is not null && _lastApplyRecord is not null && selectedMatchesLastApplied)
+        {
+            var fields = Groups.SelectMany(group => group.Fields).ToArray();
+            var confirmationRows = _compiler
+                .EvaluateConfirmation(_lastApplyRecord, _reportedTwinState)
+                .Rows
+                .ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
+            var computation = DopeControllerBreathingRowConfirmationResolver.Compute(fields, _lastApplyRecord, confirmationRows);
+            hasUnappliedEdits = computation.ChangedSinceApplyCount > 0;
+        }
+
+        return new DopeControllerBreathingSessionSnapshot(
+            IsAvailable,
+            ApplyLevel,
+            ApplySummary,
+            ApplyDetail,
+            currentProfile,
+            ResolveEffectiveProfileRecord(currentProfile),
+            _startupState,
+            _lastApplyRecord,
+            reportedValues,
+            selectedMatchesLastApplied,
+            hasUnappliedEdits);
+    }
+
+    public void Dispose()
+    {
+        if (_persistTimer is not null)
+        {
+            _persistTimer.Tick -= OnPersistTimerTick;
+            _persistTimer.Stop();
+        }
+    }
+
+    private void BuildEditorGroups()
+    {
+        Groups.Clear();
+        if (_compiler is null)
+        {
+            return;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var control in _compiler.TemplateDocument.Controls)
+        {
+            if (!seen.Add(control.Group))
+            {
+                continue;
+            }
+
+            var group = new DopeControllerBreathingProfileGroupViewModel(control.Group);
+            foreach (var groupedControl in _compiler.TemplateDocument.Controls.Where(candidate =>
+                         string.Equals(candidate.Group, control.Group, StringComparison.OrdinalIgnoreCase)))
+            {
+                group.Fields.Add(new DopeControllerBreathingProfileFieldViewModel(groupedControl, OnFieldValueChanged));
+            }
+
+            Groups.Add(group);
+        }
+    }
+
+    private async Task ReloadProfilesAsync(string? selectProfileId = null)
+    {
+        if (_profileStore is null)
+        {
+            return;
+        }
+
+        var bundledProfiles = await LoadBundledProfilesAsync().ConfigureAwait(false);
+        var profiles = await _profileStore.LoadAllAsync().ConfigureAwait(false);
+        await DispatchAsync(() =>
+        {
+            var preferredProfileId = selectProfileId ??
+                                     _selectedProfile?.Id ??
+                                     _startupState?.ProfileId;
+            Profiles.Clear();
+            foreach (var bundledProfile in bundledProfiles)
+            {
+                Profiles.Add(new DopeControllerBreathingProfileListItemViewModel(
+                    bundledProfile,
+                    isBundledProfile: true,
+                    modifiedLabelOverride: "Included in this release"));
+            }
+
+            foreach (var profile in profiles)
+            {
+                Profiles.Add(new DopeControllerBreathingProfileListItemViewModel(profile));
+            }
+
+            if (Profiles.Count == 0)
+            {
+                SelectedProfile = null;
+                _startupState = null;
+                _startupStateStore?.Save(null);
+                LibrarySummary = "No Dope controller-breathing profiles saved yet.";
+                LibraryDetail = $"Use New From Baseline to create the first profile in {LibraryRootLabel}.";
+                LibraryLevel = OperationOutcomeKind.Preview;
+                NotifyStartupStateChanged();
+                NotifyCalibrationSetupStateChanged();
+                return;
+            }
+
+            SelectedProfile = Profiles.FirstOrDefault(profile =>
+                                 string.Equals(profile.Id, preferredProfileId, StringComparison.OrdinalIgnoreCase))
+                             ?? Profiles[0];
+
+            if (_startupState is not null &&
+                Profiles.Any(profile => string.Equals(profile.Id, _startupState.ProfileId, StringComparison.OrdinalIgnoreCase)) is false)
+            {
+                _startupState = null;
+                _startupStateStore?.Save(null);
+            }
+
+            LibrarySummary = $"Loaded {Profiles.Count.ToString(CultureInfo.InvariantCulture)} Dope controller-breathing profile(s).";
+            LibraryDetail = $"Bundled examples are read-only release assets. Local profiles live in {LibraryRootLabel}; applying a profile changes only the current Dope session, while the next-launch override is shown on the right.";
+            LibraryLevel = OperationOutcomeKind.Success;
+            NotifyStartupStateChanged();
+            NotifyCalibrationSetupStateChanged();
+        }).ConfigureAwait(false);
+    }
+
+    private void LoadSelectedProfileIntoEditor(DopeControllerBreathingProfileListItemViewModel? profile)
+    {
+        _suppressEditorPersistence = true;
+        try
+        {
+            if (profile is null)
+            {
+                SelectedProfileName = string.Empty;
+                SelectedProfileNotes = string.Empty;
+                foreach (var field in Groups.SelectMany(group => group.Fields))
+                {
+                    field.ResetToBaseline(notify: false);
+                    field.SetConfirmation("Not applied", OperationOutcomeKind.Preview);
+                }
+
+                ComparisonRows.Clear();
+                return;
+            }
+
+            SelectedProfileName = profile.Document.Profile.Name;
+            SelectedProfileNotes = profile.Document.Profile.Notes ?? string.Empty;
+            var values = profile.Document.ControlValues;
+            foreach (var field in Groups.SelectMany(group => group.Fields))
+            {
+                if (values.TryGetValue(field.Id, out var value))
+                {
+                    field.SetValue(value, notify: false);
+                }
+                else
+                {
+                    field.ResetToBaseline(notify: false);
+                }
+
+                field.SetConfirmation("Not applied", OperationOutcomeKind.Preview);
+            }
+        }
+        finally
+        {
+            _suppressEditorPersistence = false;
+        }
+
+        RefreshComparisonState();
+        NotifyCalibrationSetupStateChanged();
+    }
+
+    private void OnFieldValueChanged()
+    {
+        SchedulePersist();
+        RefreshComparisonState(syncCurrentValueText: true);
+        NotifyStartupStateChanged();
+        NotifyCalibrationSetupStateChanged();
+    }
+
+    private DopeControllerBreathingProfileRecord? CreateCurrentProfileRecord()
+    {
+        if (SelectedProfile is null)
+        {
+            return null;
+        }
+
+        if (_compiler is null)
+        {
+            return SelectedProfile.ToRecord();
+        }
+
+        if (!TryCreateCurrentDocument(out var document, out _))
+        {
+            return null;
+        }
+
+        return SelectedProfile.ToRecord() with { Document = document! };
+    }
+
+    private DopeControllerBreathingProfileRecord? ResolveEffectiveProfileRecord(
+        DopeControllerBreathingProfileRecord? currentProfile)
+    {
+        if (_lastApplyRecord is null || _compiler is null)
+        {
+            return null;
+        }
+
+        if (currentProfile is not null &&
+            string.Equals(currentProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase))
+        {
+            return currentProfile with
+            {
+                FileHash = _lastApplyRecord.FileHash,
+                ModifiedAtUtc = _lastApplyRecord.AppliedAtUtc,
+                Document = _compiler.CreateDocument(
+                    _lastApplyRecord.ProfileName,
+                    currentProfile.Document.Profile.Notes,
+                    _lastApplyRecord.RequestedValues)
+            };
+        }
+
+        var storedProfile = Profiles.FirstOrDefault(profile =>
+            string.Equals(profile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase));
+        if (storedProfile is not null)
+        {
+            return storedProfile.ToRecord();
+        }
+
+        return new DopeControllerBreathingProfileRecord(
+            _lastApplyRecord.ProfileId,
+            string.Empty,
+            _lastApplyRecord.FileHash,
+            _lastApplyRecord.AppliedAtUtc,
+            _compiler.CreateDocument(
+                _lastApplyRecord.ProfileName,
+                null,
+                _lastApplyRecord.RequestedValues));
+    }
+
+    private void SchedulePersist()
+    {
+        if (_suppressEditorPersistence || SelectedProfile is null || !IsAvailable)
+        {
+            return;
+        }
+
+        _persistPending = true;
+        if (_persistTimer is null)
+        {
+            _ = PersistCurrentProfileAsync();
+            return;
+        }
+
+        _persistTimer.Stop();
+        _persistTimer.Start();
+    }
+
+    private void FlushPendingCurrentProfileSave()
+    {
+        if (!_persistPending || SelectedProfile is null || !IsAvailable)
+        {
+            return;
+        }
+
+        _persistTimer?.Stop();
+        _persistPending = false;
+        var snapshot = CaptureCurrentSnapshot();
+        if (snapshot is not null)
+        {
+            _ = PersistSnapshotAsync(snapshot);
+        }
+    }
+
+    private async void OnPersistTimerTick(object? sender, EventArgs e)
+    {
+        _persistTimer?.Stop();
+        await PersistCurrentProfileAsync().ConfigureAwait(false);
+    }
+
+    private async Task<DopeControllerBreathingProfileRecord?> PersistCurrentProfileAsync(bool forceCurrentSnapshot = false)
+    {
+        if (!forceCurrentSnapshot && !_persistPending)
+        {
+            return SelectedProfile?.ToRecord();
+        }
+
+        var snapshot = CaptureCurrentSnapshot();
+        if (snapshot is null)
+        {
+            return null;
+        }
+
+        _persistPending = false;
+        return await PersistSnapshotAsync(snapshot).ConfigureAwait(false);
+    }
+
+    private DopeControllerBreathingProfileSnapshot? CaptureCurrentSnapshot()
+    {
+        if (SelectedProfile is null)
+        {
+            return null;
+        }
+
+        return new DopeControllerBreathingProfileSnapshot(
+            SelectedProfile,
+            string.IsNullOrWhiteSpace(SelectedProfileName) ? SelectedProfile.Document.Profile.Name : SelectedProfileName.Trim(),
+            string.IsNullOrWhiteSpace(SelectedProfileNotes) ? null : SelectedProfileNotes.Trim(),
+            Groups
+                .SelectMany(group => group.Fields)
+                .ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private async Task<DopeControllerBreathingProfileRecord?> PersistSnapshotAsync(DopeControllerBreathingProfileSnapshot snapshot)
+    {
+        if (_profileStore is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var updateExistingProfile = snapshot.Profile.IsWritableLocalProfile;
+            var saved = await _profileStore.SaveAsync(
+                updateExistingProfile ? snapshot.Profile.FilePath : null,
+                snapshot.ProfileName,
+                snapshot.ProfileNotes,
+                snapshot.ControlValues).ConfigureAwait(false);
+
+            if (!updateExistingProfile)
+            {
+                await ReloadProfilesAsync(saved.Id).ConfigureAwait(false);
+                return saved;
+            }
+
+            await DispatchAsync(() =>
+            {
+                snapshot.Profile.Apply(saved);
+
+                if (ReferenceEquals(SelectedProfile, snapshot.Profile))
+                {
+                    RefreshComparisonState();
+                }
+            }).ConfigureAwait(false);
+
+            return saved;
+        }
+        catch (Exception ex)
+        {
+            await DispatchAsync(() =>
+            {
+                LibrarySummary = "Saving Dope controller-breathing profile failed.";
+                LibraryDetail = ex.Message;
+                LibraryLevel = OperationOutcomeKind.Failure;
+            }).ConfigureAwait(false);
+            return null;
+        }
+    }
+
+    private async Task NewFromBaselineAsync()
+    {
+        if (_profileStore is null)
+        {
+            return;
+        }
+
+        var created = await _profileStore.CreateFromTemplateAsync(BuildUniqueProfileName("Dope Controller Breathing Profile")).ConfigureAwait(false);
+        await ReloadProfilesAsync(created.Id).ConfigureAwait(false);
+    }
+
+    private async Task DuplicateSelectedAsync()
+    {
+        if (_profileStore is null || SelectedProfile is null)
+        {
+            return;
+        }
+
+        var source = SelectedProfile.IsWritableLocalProfile
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
+        if (source is null)
+        {
+            return;
+        }
+
+        var duplicated = await _profileStore.SaveAsync(
+            existingPath: null,
+            BuildUniqueProfileName(source.Document.Profile.Name + " Copy"),
+            source.Document.Profile.Notes,
+            source.Document.ControlValues).ConfigureAwait(false);
+        await ReloadProfilesAsync(duplicated.Id).ConfigureAwait(false);
+    }
+
+    private async Task RenameSelectedAsync()
+    {
+        await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+    }
+
+    private async Task ImportProfileAsync()
+    {
+        if (_profileStore is null)
+        {
+            return;
+        }
+
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import Dope Controller Breathing Profile",
+            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+            InitialDirectory = !string.IsNullOrWhiteSpace(LibraryRootLabel) && Directory.Exists(LibraryRootLabel)
+                ? LibraryRootLabel
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var imported = await _profileStore.ImportAsync(dialog.FileName).ConfigureAwait(false);
+            await ReloadProfilesAsync(imported.Id).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            LibrarySummary = "Dope controller-breathing profile import failed.";
+            LibraryDetail = ex.Message;
+            LibraryLevel = OperationOutcomeKind.Failure;
+        }
+    }
+
+    private async Task ExportSelectedAsync()
+    {
+        if (_profileStore is null)
+        {
+            return;
+        }
+
+        var saved = SelectedProfile is { IsWritableLocalProfile: true }
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
+        if (saved is null)
+        {
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export Dope Controller Breathing Profile",
+            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+            FileName = saved.Id + ".json",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        await _profileStore.ExportAsync(saved.Document, dialog.FileName).ConfigureAwait(false);
+        LibrarySummary = "Dope controller-breathing profile exported.";
+        LibraryDetail = dialog.FileName;
+        LibraryLevel = OperationOutcomeKind.Success;
+    }
+
+    private Task OpenFolderAsync()
+    {
+        if (string.IsNullOrWhiteSpace(LibraryRootLabel))
+        {
+            return Task.CompletedTask;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = LibraryRootLabel,
+            UseShellExecute = true
+        });
+        return Task.CompletedTask;
+    }
+
+    private async Task SetStartupProfileAsync()
+    {
+        if (SelectedProfile is null)
+        {
+            return;
+        }
+
+        var saved = SelectedProfile.IsWritableLocalProfile
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
+        if (saved is null)
+        {
+            return;
+        }
+
+        var startupState = new DopeControllerBreathingProfileStartupState(
+            saved.Id,
+            saved.Document.Profile.Name,
+            DateTimeOffset.UtcNow,
+            saved.Document.Profile.Notes,
+            new Dictionary<string, double>(saved.Document.ControlValues, StringComparer.OrdinalIgnoreCase));
+        _startupStateStore?.Save(startupState);
+        await DispatchAsync(() =>
+        {
+            _startupState = startupState;
+            NotifyStartupStateChanged();
+            RefreshComparisonState();
+        }).ConfigureAwait(false);
+        StartupProfileChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private Task UseBundledStartupAsync()
+    {
+        _startupState = null;
+        _startupStateStore?.Save(null);
+        NotifyStartupStateChanged();
+        RefreshComparisonState();
+        StartupProfileChanged?.Invoke(this, EventArgs.Empty);
+        return Task.CompletedTask;
+    }
+
+    internal DopeControllerBreathingStartupHotloadPlan? CapturePinnedStartupHotloadPlan()
+    {
+        if (_compiler is null)
+        {
+            return null;
+        }
+
+        var startupRecord = CreateStartupProfileRecord();
+        if (startupRecord is null)
+        {
+            return null;
+        }
+
+        var compiled = _compiler.Compile(startupRecord.Document);
+        var previousReportedValues = _compiler.ExtractReportedValues(_reportedTwinState);
+        return new DopeControllerBreathingStartupHotloadPlan(
+            startupRecord,
+            compiled.Entries,
+            new Dictionary<string, double?>(previousReportedValues, StringComparer.OrdinalIgnoreCase));
+    }
+
+    internal void TrackPinnedStartupLaunch(
+        DopeControllerBreathingStartupHotloadPlan plan,
+        DateTimeOffset appliedAtUtc,
+        string? csvPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        _lastApplyRecord = new DopeControllerBreathingProfileApplyRecord(
+            plan.Profile.Id,
+            plan.Profile.Document.Profile.Name,
+            plan.Profile.FileHash,
+            ComputeEntriesHash(plan.Entries),
+            appliedAtUtc,
+            new Dictionary<string, double>(plan.Profile.Document.ControlValues, StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double?>(plan.PreviousReportedValues, StringComparer.OrdinalIgnoreCase));
+        _applyStateStore?.Save(_lastApplyRecord);
+        if (!string.IsNullOrWhiteSpace(csvPath))
+        {
+            LastCompiledCsvPath = csvPath;
+        }
+
+        RefreshComparisonState();
+    }
+
+    public async Task ApplyStartupProfileOnLaunchAsync()
+    {
+        DopeControllerBreathingProfileRecord? startupRecord = null;
+        await DispatchAsync(() =>
+        {
+            startupRecord = CreateStartupProfileRecord();
+        }).ConfigureAwait(false);
+
+        if (startupRecord is null)
+        {
+            await DispatchAsync(() =>
+            {
+                ApplySummary = "APK launch is using the bundled Dope controller-breathing baseline.";
+                ApplyDetail = "No saved startup profile is pinned, so Dope keeps the bundled controller-breathing baseline until you apply another profile.";
+                ApplyLevel = OperationOutcomeKind.Preview;
+                RefreshComparisonState();
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        await ApplyProfileRecordAsync(
+            startupRecord,
+            "Apply Startup Controller Breathing Profile").ConfigureAwait(false);
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (_profileStore is null || SelectedProfile is not { IsWritableLocalProfile: true })
+        {
+            return;
+        }
+
+        if (MessageBox.Show(
+                $"Delete '{SelectedProfile.Document.Profile.Name}' from the Dope controller-breathing profile library?",
+                "DOPE Companion",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var deletedId = SelectedProfile.Id;
+        if (_lastApplyRecord is not null &&
+            string.Equals(_lastApplyRecord.ProfileId, deletedId, StringComparison.OrdinalIgnoreCase))
+        {
+            _lastApplyRecord = null;
+            _applyStateStore?.Save(null);
+        }
+
+        if (_startupState is not null &&
+            string.Equals(_startupState.ProfileId, deletedId, StringComparison.OrdinalIgnoreCase))
+        {
+            _startupState = null;
+            _startupStateStore?.Save(null);
+            NotifyStartupStateChanged();
+            StartupProfileChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        await _profileStore.DeleteAsync(SelectedProfile.FilePath).ConfigureAwait(false);
+        await ReloadProfilesAsync().ConfigureAwait(false);
+    }
+
+    private async Task ApplySelectedAsync()
+    {
+        if (_compiler is null || SelectedProfile is null)
+        {
+            return;
+        }
+
+        var saved = SelectedProfile.IsWritableLocalProfile
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
+        if (saved is null)
+        {
+            return;
+        }
+
+        await ApplyProfileRecordAsync(saved, "Apply Controller Breathing Profile", preferTwinRuntimePublish: true).ConfigureAwait(false);
+    }
+
+    private async Task ApplyProfileRecordAsync(
+        DopeControllerBreathingProfileRecord saved,
+        string actionLabel,
+        bool preferTwinRuntimePublish = false)
+    {
+        if (_compiler is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var compiled = _compiler.Compile(saved.Document);
+            var previousReportedValues = _compiler.ExtractReportedValues(_reportedTwinState);
+            var runtimeProfile = new RuntimeConfigProfile(
+                $"dope_controller_breathing_tuning_v1_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
+                $"Dope Controller Breathing Profile - {saved.Document.Profile.Name}",
+                string.Empty,
+                DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
+                "study",
+                false,
+                $"Compiled from {saved.Document.Profile.Name}. Only the Dope-approved controller-breathing and vibration fields were changed.",
+                [saved.Document.PackageId],
+                compiled.Entries.ToArray());
+
+            var csvPath = await _runtimeConfigWriter.WriteAsync(runtimeProfile).ConfigureAwait(false);
+            LastCompiledCsvPath = csvPath;
+
+            var hotloadProfile = new HotloadProfile(
+                runtimeProfile.Id,
+                runtimeProfile.Label,
+                csvPath,
+                runtimeProfile.Version,
+                runtimeProfile.Channel,
+                runtimeProfile.StudyLock,
+                runtimeProfile.Description,
+                runtimeProfile.PackageIds);
+
+            var target = new QuestAppTarget(
+                _study.Id,
+                _study.App.Label,
+                _study.App.PackageId,
+                _study.App.ApkPath,
+                _study.App.LaunchComponent,
+                string.Empty,
+                _study.Description,
+                []);
+
+            var headsetStatus = await _questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false).ConfigureAwait(false);
+            if (!headsetStatus.IsConnected)
+            {
+                ApplySummary = $"{actionLabel} blocked.";
+                ApplyDetail = $"{headsetStatus.Detail} The CSV was compiled locally at {csvPath}, but it was not uploaded.";
+                ApplyLevel = OperationOutcomeKind.Failure;
+                RefreshComparisonState();
+                return;
+            }
+
+            OperationOutcome? wakeOutcome = null;
+            if (headsetStatus.IsAwake != true || headsetStatus.IsInWakeLimbo)
+            {
+                wakeOutcome = await _questService.RunUtilityAsync(
+                    QuestUtilityAction.Wake,
+                    allowWakeResumeTarget: false).ConfigureAwait(false);
+
+                if (wakeOutcome.Kind == OperationOutcomeKind.Failure)
+                {
+                    ApplySummary = $"{actionLabel} blocked by headset wake failure.";
+                    ApplyDetail = BuildWakeFailureDetail(wakeOutcome, csvPath);
+                    ApplyLevel = OperationOutcomeKind.Failure;
+                    RefreshComparisonState();
+                    return;
+                }
+
+                headsetStatus = await _questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false).ConfigureAwait(false);
+                if (headsetStatus.IsAwake != true || headsetStatus.IsInWakeLimbo)
+                {
+                    ApplySummary = $"{actionLabel} is waiting for an awake headset.";
+                    ApplyDetail = BuildHeadsetNotReadyDetail(headsetStatus, wakeOutcome, csvPath);
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                    RefreshComparisonState();
+                    return;
+                }
+            }
+
+            OperationOutcome outcome;
+            if (preferTwinRuntimePublish)
+            {
+                if (headsetStatus.IsTargetForeground != true)
+                {
+                    ApplySummary = $"{actionLabel} requires an active Dope session.";
+                    ApplyDetail = $"Current-session controller-breathing applies are live-only and do not rewrite the saved launch profile. Bring {target.Label} to the foreground, then apply the runtime draft again.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                    RefreshComparisonState();
+                    return;
+                }
+
+                if (_twinBridge is null || !_twinBridge.Status.IsAvailable)
+                {
+                    ApplySummary = $"{actionLabel} requires the live twin bridge.";
+                    ApplyDetail = "Current-session controller-breathing applies now use the live quest_hotload_config channel so they stay temporary and do not overwrite the saved launch profile on device.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                    RefreshComparisonState();
+                    return;
+                }
+
+                outcome = await _twinBridge.PublishRuntimeConfigAsync(runtimeProfile, target).ConfigureAwait(false);
+            }
+            else
+            {
+                outcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, target).ConfigureAwait(false);
+            }
+
+            if (outcome.Kind != OperationOutcomeKind.Failure)
+            {
+                _lastApplyRecord = new DopeControllerBreathingProfileApplyRecord(
+                    saved.Id,
+                    saved.Document.Profile.Name,
+                    saved.FileHash,
+                    ComputeEntriesHash(compiled.Entries),
+                    DateTimeOffset.UtcNow,
+                    new Dictionary<string, double>(saved.Document.ControlValues, StringComparer.OrdinalIgnoreCase),
+                    new Dictionary<string, double?>(previousReportedValues, StringComparer.OrdinalIgnoreCase));
+                _applyStateStore?.Save(_lastApplyRecord);
+            }
+
+            ApplySummary = outcome.Summary;
+            ApplyDetail = BuildApplyOutcomeDetail(outcome, headsetStatus, csvPath, wakeOutcome, preferTwinRuntimePublish);
+            ApplyLevel = outcome.Kind;
+            RefreshComparisonState();
+        }
+        catch (Exception ex)
+        {
+            ApplySummary = $"{actionLabel} failed.";
+            ApplyDetail = BuildApplyExceptionDetail(ex);
+            ApplyLevel = OperationOutcomeKind.Failure;
+            RefreshComparisonState();
+        }
+    }
+
+    public async Task UseDynamicAxisCalibrationAsync()
+    {
+        await ApplyCalibrationModeSelectionAsync(useDynamicMotionAxis: true).ConfigureAwait(false);
+    }
+
+    public async Task UseFixedOrientationCalibrationAsync()
+    {
+        await ApplyCalibrationModeSelectionAsync(useDynamicMotionAxis: false).ConfigureAwait(false);
+    }
+
+    private Task ResetFieldAsync(object? parameter)
+    {
+        if (parameter is DopeControllerBreathingProfileFieldViewModel field)
+        {
+            field.ResetToBaseline(notify: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void RefreshComparisonState(bool syncCurrentValueText = false)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => RefreshComparisonState(syncCurrentValueText));
+            return;
+        }
+
+        try
+        {
+            if (_compiler is null || SelectedProfile is null)
+            {
+                ComparisonRows.Clear();
+                return;
+            }
+
+            var startupComparisonDocument = ResolveStartupComparisonDocument();
+            var fields = Groups.SelectMany(group => group.Fields).ToArray();
+            var fieldsById = fields.ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
+            var rows = DopeControllerBreathingComparisonRowBuilder.Build(_compiler, fields, startupComparisonDocument);
+            var selectedMatchesLastApplyProfile = _lastApplyRecord is not null &&
+                string.Equals(SelectedProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase);
+            var currentDocumentIsValid = TryCreateCurrentDocument(out _, out var editorError);
+            var editorErrorDetail = editorError ?? "The current editor values could not be compiled.";
+
+            var rowConfirmationStates = new Dictionary<string, DopeControllerBreathingRowConfirmationState>(StringComparer.OrdinalIgnoreCase);
+            var changedSinceApplyCount = 0;
+            var unchangedSinceApplyCount = 0;
+            if (selectedMatchesLastApplyProfile)
+            {
+                var confirmation = _compiler.EvaluateConfirmation(_lastApplyRecord!, _reportedTwinState);
+                var confirmationRows = confirmation.Rows.ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
+                var computation = DopeControllerBreathingRowConfirmationResolver.Compute(fieldsById.Values, _lastApplyRecord!, confirmationRows);
+                rowConfirmationStates = new Dictionary<string, DopeControllerBreathingRowConfirmationState>(computation.States, StringComparer.OrdinalIgnoreCase);
+                changedSinceApplyCount = computation.ChangedSinceApplyCount;
+                unchangedSinceApplyCount = computation.UnchangedSinceApplyCount;
+
+                if (!currentDocumentIsValid)
+                {
+                    ApplySummary = "Current controller-breathing values are invalid.";
+                    ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Dope launch.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                }
+                else if (changedSinceApplyCount > 0)
+                {
+                    ApplySummary = changedSinceApplyCount == 1
+                        ? "1 controller-tuning value changed since the last apply."
+                        : $"{changedSinceApplyCount.ToString(CultureInfo.InvariantCulture)} controller-tuning values changed since the last apply.";
+                    ApplyDetail = unchangedSinceApplyCount > 0
+                        ? $"Apply again to request the edited values, refresh headset confirmation, and reset controller calibration. The other {unchangedSinceApplyCount.ToString(CultureInfo.InvariantCulture)} row(s) still show the last headset confirmation for {_lastApplyRecord!.ProfileName}."
+                        : "Apply again to request the edited values, refresh headset confirmation, and reset controller calibration to the new tuning envelope.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                }
+                else
+                {
+                    ApplySummary = confirmation.Summary;
+                    ApplyDetail = confirmation.WaitingCount > 0
+                        ? $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}. Upload succeeded; waiting for a fresh quest_twin_state report to mirror the controller-breathing hotload values."
+                        : $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}. Recalibrate controller breathing on the headset before the participant run.";
+                    ApplyLevel = confirmation.MismatchCount > 0
+                        ? OperationOutcomeKind.Warning
+                        : confirmation.WaitingCount > 0
+                            ? OperationOutcomeKind.Warning
+                            : OperationOutcomeKind.Success;
+                }
+            }
+            else if (!currentDocumentIsValid)
+            {
+                ApplySummary = "Current controller-breathing values are invalid.";
+                ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Dope launch.";
+                ApplyLevel = OperationOutcomeKind.Warning;
+            }
+            else if (_lastApplyRecord is not null)
+            {
+                ApplySummary = $"Last applied profile: {_lastApplyRecord.ProfileName}.";
+                ApplyDetail = "Select that profile to inspect per-field confirmation, or apply the current profile.";
+                ApplyLevel = OperationOutcomeKind.Success;
+            }
+            else
+            {
+                ApplySummary = "No Dope controller-breathing profile has been applied yet.";
+                ApplyDetail = "Apply the current profile to start headset confirmation tracking.";
+                ApplyLevel = OperationOutcomeKind.Preview;
+            }
+
+            if (ComparisonRows.Count != rows.Count ||
+                ComparisonRows.Select(row => row.Field.Id).SequenceEqual(rows.Select(row => row.Id), StringComparer.OrdinalIgnoreCase) is false)
+            {
+                ComparisonRows.Clear();
+                foreach (var row in rows)
+                {
+                    if (!fieldsById.TryGetValue(row.Id, out var field))
+                    {
+                        continue;
+                    }
+
+                    ComparisonRows.Add(new DopeControllerBreathingComparisonRowViewModel(
+                        field,
+                        row,
+                        ResolveRowConfirmationState(rowConfirmationStates, row.Id)));
+                }
+            }
+            else
+            {
+                for (var index = 0; index < rows.Count; index++)
+                {
+                    ComparisonRows[index].Apply(
+                        rows[index],
+                        ResolveRowConfirmationState(rowConfirmationStates, rows[index].Id),
+                        syncCurrentValueText);
+                }
+            }
+
+            foreach (var field in fields)
+            {
+                var state = ResolveRowConfirmationState(rowConfirmationStates, field.Id);
+                field.SetConfirmation(state.Label, state.Level);
+            }
+
+            NotifyCalibrationSetupStateChanged();
+        }
+        catch (Exception ex) when (ex is InvalidDataException or FormatException or InvalidOperationException)
+        {
+            ApplySummary = "Current controller-breathing values could not be compared safely.";
+            ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next Dope launch.";
+            ApplyLevel = OperationOutcomeKind.Warning;
+            NotifyCalibrationSetupStateChanged();
+        }
+    }
+
+    private static DopeControllerBreathingRowConfirmationState ResolveRowConfirmationState(
+        IReadOnlyDictionary<string, DopeControllerBreathingRowConfirmationState> states,
+        string fieldId)
+        => states.TryGetValue(fieldId, out var state)
+            ? state
+            : DopeControllerBreathingRowConfirmationResolver.DefaultConfirmationState;
+
+    private string BuildUniqueProfileName(string baseName)
+    {
+        var seed = string.IsNullOrWhiteSpace(baseName) ? "Dope Controller Breathing Profile" : baseName.Trim();
+        if (Profiles.All(profile => !string.Equals(profile.Document.Profile.Name, seed, StringComparison.OrdinalIgnoreCase)))
+        {
+            return seed;
+        }
+
+        var suffix = 2;
+        while (true)
+        {
+            var candidate = $"{seed} {suffix}";
+            if (Profiles.All(profile => !string.Equals(profile.Document.Profile.Name, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return candidate;
+            }
+
+            suffix++;
+        }
+    }
+
+    private void RaiseCommandStates()
+    {
+        DuplicateSelectedCommand.RaiseCanExecuteChanged();
+        RenameSelectedCommand.RaiseCanExecuteChanged();
+        ExportSelectedCommand.RaiseCanExecuteChanged();
+        SetStartupProfileCommand.RaiseCanExecuteChanged();
+        UseBundledStartupCommand.RaiseCanExecuteChanged();
+        DeleteSelectedCommand.RaiseCanExecuteChanged();
+        ApplySelectedCommand.RaiseCanExecuteChanged();
+        UseDynamicAxisCalibrationCommand.RaiseCanExecuteChanged();
+        UseFixedOrientationCalibrationCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task<IReadOnlyList<DopeControllerBreathingProfileRecord>> LoadBundledProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_compiler is null)
+        {
+            return Array.Empty<DopeControllerBreathingProfileRecord>();
+        }
+
+        var bundledRoot = AppAssetLocator.TryResolveBundledDopeControllerBreathingProfilesRoot();
+        if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
+        {
+            return Array.Empty<DopeControllerBreathingProfileRecord>();
+        }
+
+        var records = new List<DopeControllerBreathingProfileRecord>();
+        foreach (var path in Directory.EnumerateFiles(bundledRoot, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+                var document = _compiler.Parse(json);
+                records.Add(new DopeControllerBreathingProfileRecord(
+                    BundledProfileIdPrefix + Path.GetFileNameWithoutExtension(path),
+                    Path.GetFullPath(path),
+                    ComputeTextHash(json),
+                    File.GetLastWriteTimeUtc(path),
+                    document));
+            }
+            catch (InvalidDataException)
+            {
+                // Skip invalid bundled profile files so a bad release asset does not break the workspace.
+            }
+        }
+
+        return records
+            .OrderBy(record => record.Document.Profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private DopeControllerBreathingProfileFieldViewModel? FindField(string fieldId)
+        => Groups
+            .SelectMany(group => group.Fields)
+            .FirstOrDefault(field => string.Equals(field.Id, fieldId, StringComparison.OrdinalIgnoreCase));
+
+    private bool TryGetCurrentControlValue(string fieldId, out double value)
+    {
+        var field = FindField(fieldId);
+        if (field is null)
+        {
+            value = 0d;
+            return false;
+        }
+
+        value = field.Value;
+        return true;
+    }
+
+    private async Task<bool> EnsureSelectedProfileAsync()
+    {
+        if (SelectedProfile is not null)
+        {
+            return true;
+        }
+
+        if (_profileStore is null)
+        {
+            return false;
+        }
+
+        var created = await _profileStore
+            .CreateFromTemplateAsync(BuildUniqueProfileName("Dope Controller Breathing Profile"))
+            .ConfigureAwait(false);
+        await ReloadProfilesAsync(created.Id).ConfigureAwait(false);
+        return SelectedProfile is not null;
+    }
+
+    private async Task ApplyCalibrationModeSelectionAsync(bool useDynamicMotionAxis)
+    {
+        if (!await EnsureSelectedProfileAsync().ConfigureAwait(false))
+        {
+            ApplySummary = "Calibration setup is unavailable.";
+            ApplyDetail = "The Dope controller-breathing profile library is not ready yet.";
+            ApplyLevel = OperationOutcomeKind.Failure;
+            NotifyCalibrationSetupStateChanged();
+            return;
+        }
+
+        var modeField = FindField(UsePrincipalAxisCalibrationFieldId);
+        if (modeField is null)
+        {
+            ApplySummary = "Calibration mode control is missing.";
+            ApplyDetail = "The selected controller-breathing profile does not expose the calibration mode field.";
+            ApplyLevel = OperationOutcomeKind.Failure;
+            NotifyCalibrationSetupStateChanged();
+            return;
+        }
+
+        modeField.SetValue(useDynamicMotionAxis ? 1d : 0d, notify: true);
+
+        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+        if (saved is null)
+        {
+            return;
+        }
+
+        var actionLabel = useDynamicMotionAxis
+            ? "Use Dynamic Motion-Axis Calibration"
+            : "Use Fixed-Orientation Calibration";
+        await ApplyProfileRecordAsync(saved, actionLabel, preferTwinRuntimePublish: true).ConfigureAwait(false);
+        NotifyCalibrationSetupStateChanged();
+    }
+
+    private void NotifyCalibrationSetupStateChanged()
+    {
+        OnPropertyChanged(nameof(IsDynamicMotionAxisSelected));
+        OnPropertyChanged(nameof(IsFixedControllerOrientationSelected));
+        OnPropertyChanged(nameof(CalibrationModeSummary));
+        OnPropertyChanged(nameof(CalibrationModeDetail));
+        OnPropertyChanged(nameof(CalibrationAcceptanceSummary));
+        OnPropertyChanged(nameof(CalibrationAcceptanceDetail));
+        OnPropertyChanged(nameof(CalibrationSetupSummary));
+        OnPropertyChanged(nameof(CalibrationSetupDetail));
+    }
+
+    private DopeControllerBreathingProfileListItemViewModel? ResolvePinnedStartupProfile()
+        => _startupState is null
+            ? null
+            : Profiles.FirstOrDefault(profile =>
+                string.Equals(profile.Id, _startupState.ProfileId, StringComparison.OrdinalIgnoreCase));
+
+    private DopeControllerBreathingTuningDocument ResolveStartupComparisonDocument()
+    {
+        if (_compiler is null)
+        {
+            throw new InvalidOperationException("Dope controller-breathing tuning compiler is not available.");
+        }
+
+        return DopeControllerBreathingStartupSnapshotResolver.ResolveDocument(
+            _compiler,
+            _startupState,
+            ResolvePinnedStartupProfile()?.Document);
+    }
+
+    private DopeControllerBreathingProfileRecord? CreateStartupProfileRecord()
+    {
+        if (_compiler is null || _startupState is null)
+        {
+            return ResolvePinnedStartupProfile()?.ToRecord();
+        }
+
+        DopeControllerBreathingTuningDocument startupDocument;
+        try
+        {
+            startupDocument = ResolveStartupComparisonDocument();
+        }
+        catch (InvalidDataException)
+        {
+            return ResolvePinnedStartupProfile()?.ToRecord();
+        }
+
+        var payload = _compiler.Serialize(startupDocument);
+        return new DopeControllerBreathingProfileRecord(
+            _startupState.ProfileId,
+            string.Empty,
+            ComputeTextHash(payload),
+            _startupState.UpdatedAtUtc,
+            startupDocument);
+    }
+
+    private bool TryCreateCurrentDocument(
+        out DopeControllerBreathingTuningDocument? document,
+        out string? error)
+    {
+        if (_compiler is null || SelectedProfile is null)
+        {
+            document = null;
+            error = null;
+            return false;
+        }
+
+        return DopeControllerBreathingCurrentDocumentResolver.TryCreate(
+            _compiler,
+            SelectedProfileName,
+            SelectedProfileNotes,
+            Groups.SelectMany(group => group.Fields),
+            out document,
+            out error);
+    }
+
+    private void NotifyStartupStateChanged()
+    {
+        OnPropertyChanged(nameof(HasPinnedStartupProfile));
+        OnPropertyChanged(nameof(IsSelectedProfileStartupDefault));
+        OnPropertyChanged(nameof(StartupProfileSummary));
+        OnPropertyChanged(nameof(StartupProfileDetail));
+        OnPropertyChanged(nameof(StartupProfileActionLabel));
+        RaiseCommandStates();
+    }
+
+    private static string ComputeEntriesHash(IReadOnlyList<RuntimeConfigEntry> entries)
+    {
+        var builder = new StringBuilder();
+        foreach (var entry in entries)
+        {
+            builder.Append(entry.Key);
+            builder.Append('=');
+            builder.Append(entry.Value);
+            builder.AppendLine();
+        }
+
+        byte[] bytes = Encoding.UTF8.GetBytes(builder.ToString());
+        using var sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(bytes));
+    }
+
+    private static string ComputeTextHash(string value)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        using var sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(bytes));
+    }
+
+    private static string BuildApplyOutcomeDetail(
+        OperationOutcome outcome,
+        HeadsetAppStatus headsetStatus,
+        string csvPath,
+        OperationOutcome? wakeOutcome,
+        bool usedTwinRuntimePublish)
+    {
+        var detailParts = new List<string>();
+        if (wakeOutcome is not null && !string.IsNullOrWhiteSpace(wakeOutcome.Detail))
+        {
+            detailParts.Add(wakeOutcome.Detail);
+        }
+
+        if (!string.IsNullOrWhiteSpace(outcome.Detail))
+        {
+            detailParts.Add(outcome.Detail);
+        }
+
+        detailParts.Add($"Compiled CSV: {csvPath}.");
+
+        if (usedTwinRuntimePublish)
+        {
+            detailParts.Add("The live quest_hotload_config channel changed only the active Dope session. The saved launch profile on device was left untouched.");
+        }
+        else if (!headsetStatus.IsTargetForeground)
+        {
+            detailParts.Add(
+                headsetStatus.IsTargetRunning
+                    ? "The Dope APK is running but not currently foreground, so the controller-breathing change may not be immediately visible."
+                    : "The Dope APK is not currently running in foreground. The staged file should load the next time the runtime starts.");
+        }
+
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            detailParts.Add("The runtime resets controller-breathing calibration after apply. Recalibrate on the headset, then use twin-state confirmation to confirm the new hotload values.");
+        }
+
+        return string.Join(" ", detailParts);
+    }
+
+    private static string BuildHeadsetNotReadyDetail(
+        HeadsetAppStatus headsetStatus,
+        OperationOutcome? wakeOutcome,
+        string csvPath)
+    {
+        var detailParts = new List<string>();
+        if (wakeOutcome is not null && !string.IsNullOrWhiteSpace(wakeOutcome.Detail))
+        {
+            detailParts.Add(wakeOutcome.Detail);
+        }
+
+        if (!string.IsNullOrWhiteSpace(headsetStatus.Detail))
+        {
+            detailParts.Add(headsetStatus.Detail);
+        }
+
+        detailParts.Add($"Compiled CSV: {csvPath}.");
+        detailParts.Add("The Dope runtime must be awake and visible enough to poll runtime_hotload/runtime_overrides.csv before a controller-breathing apply can take effect. Wake the headset or use the bench-tools proximity hold, then apply again.");
+        return string.Join(" ", detailParts);
+    }
+
+    private static string BuildWakeFailureDetail(OperationOutcome wakeOutcome, string csvPath)
+    {
+        var detailParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(wakeOutcome.Detail))
+        {
+            detailParts.Add(wakeOutcome.Detail);
+        }
+
+        detailParts.Add($"Compiled CSV: {csvPath}.");
+        detailParts.Add("The profile was not uploaded because the Dope runtime could not be brought to an awake state first.");
+        return string.Join(" ", detailParts);
+    }
+
+    private static string BuildApplyExceptionDetail(Exception exception)
+    {
+        if (exception is InvalidOperationException &&
+            exception.Message.Contains("USB ADB device", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No active Quest transport was available. Run Probe USB or Connect Quest in the Dope shell first, then apply the profile again.";
+        }
+
+        return exception.Message;
+    }
+
+    private static Task DispatchAsync(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        return dispatcher.InvokeAsync(action).Task;
+    }
+}
+

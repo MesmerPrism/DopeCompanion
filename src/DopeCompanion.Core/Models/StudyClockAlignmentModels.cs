@@ -1,0 +1,67 @@
+namespace DopeCompanion.Core.Models;
+
+public static class DopeClockAlignmentStreamContract
+{
+    public const string ProbeStreamName = "DopeClockProbe";
+    public const string ProbeStreamType = "dope.clock.probe";
+    public const string EchoStreamName = "DopeClockEcho";
+    public const string EchoStreamType = "dope.clock.echo";
+    public const string EchoChannelLabel = "clock_alignment_echo";
+    public const int DefaultDurationSeconds = 10;
+    public const int DefaultProbeIntervalMilliseconds = 250;
+    public const int DefaultEchoGraceMilliseconds = 1500;
+    public const int DefaultBackgroundProbeIntervalSeconds = 5;
+}
+
+public enum StudyClockAlignmentWindowKind
+{
+    StartBurst = 0,
+    BackgroundSparse = 1,
+    EndBurst = 2
+}
+
+public sealed record StudyClockAlignmentRunRequest(
+    string SessionId,
+    string DatasetHash,
+    StudyClockAlignmentWindowKind WindowKind,
+    TimeSpan Duration,
+    TimeSpan ProbeInterval,
+    TimeSpan EchoGracePeriod,
+    int FirstProbeSequence = 1);
+
+public sealed record StudyClockAlignmentSample(
+    StudyClockAlignmentWindowKind WindowKind,
+    int ProbeSequence,
+    DateTimeOffset ProbeSentAtUtc,
+    double ProbeSentLocalClockSeconds,
+    DateTimeOffset EchoReceivedAtUtc,
+    double EchoReceivedLocalClockSeconds,
+    double? EchoSampleTimestampSeconds,
+    string QuestReceivedAtUtc,
+    double QuestReceivedLocalClockSeconds,
+    double QuestEchoLocalClockSeconds,
+    double QuestMinusWindowsClockSeconds,
+    double RoundTripSeconds);
+
+public sealed record StudyClockAlignmentProgress(
+    double PercentComplete,
+    int ProbesSent,
+    int EchoesReceived,
+    string Summary,
+    string Detail);
+
+public sealed record StudyClockAlignmentSummary(
+    int ProbesSent,
+    int EchoesReceived,
+    double? RecommendedQuestMinusWindowsClockSeconds,
+    double? MedianQuestMinusWindowsClockSeconds,
+    double? MeanQuestMinusWindowsClockSeconds,
+    double? MeanRoundTripSeconds,
+    double? MinRoundTripSeconds,
+    double? MaxRoundTripSeconds);
+
+public sealed record StudyClockAlignmentRunResult(
+    OperationOutcome Outcome,
+    StudyClockAlignmentSummary Summary,
+    IReadOnlyList<StudyClockAlignmentSample> Samples);
+

@@ -1,0 +1,88 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\DopeCompanion.Core\DopeCompanion.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DopeCompanion.App</RootNamespace>
+    <AssemblyName>DopeCompanion</AssemblyName>
+    <Title>DOPE Companion</Title>
+    <Product>DOPE Companion</Product>
+    <ApplicationIcon>Assets\dope-companion.ico</ApplicationIcon>
+    <BundledCliProjectPath>$(MSBuildProjectDirectory)\..\DopeCompanion.Cli\DopeCompanion.Cli.csproj</BundledCliProjectPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\samples\quest-session-kit\**\*.*"
+          Link="samples\quest-session-kit\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\samples\study-shells\**\*.*"
+          Link="samples\study-shells\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\samples\oscillator-config\**\*.*"
+          Link="samples\oscillator-config\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\cli.md"
+          Link="docs\cli.md"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\study-shells.md"
+          Link="docs\study-shells.md"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\monitoring-and-control.md"
+          Link="docs\monitoring-and-control.md"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\tools\reports\generate_dope_validation_pdf.py"
+          Link="tools\reports\generate_dope_validation_pdf.py"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\tools\reports\generate_dope_diagnostics_pdf.py"
+          Link="tools\reports\generate_dope_diagnostics_pdf.py"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="runtimes\win-x64\native\lsl.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\dope-companion.ico" />
+    <Resource Include="Assets\dope-companion.png" />
+  </ItemGroup>
+
+  <Target Name="PublishBundledCli"
+          AfterTargets="Publish"
+          Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <PropertyGroup>
+      <_BundledCliRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BundledCliRuntimeIdentifier>
+      <_BundledCliRuntimeIdentifier Condition="'$(_BundledCliRuntimeIdentifier)' == ''">win-x64</_BundledCliRuntimeIdentifier>
+      <_BundledCliPublishDir>$([System.IO.Path]::Combine('$(PublishDir)', 'cli', 'current'))</_BundledCliPublishDir>
+      <_BundledCliLslSource>$([System.IO.Path]::Combine('$(PublishDir)', 'runtimes', 'win-x64', 'native', 'lsl.dll'))</_BundledCliLslSource>
+      <_BundledCliRuntimeNativeDir>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'runtimes', 'win-x64', 'native'))</_BundledCliRuntimeNativeDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_BundledCliPublishDir)" />
+    <Exec Command="dotnet publish &quot;$(BundledCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --runtime &quot;$(_BundledCliRuntimeIdentifier)&quot; -p:PublishSingleFile=true -p:SelfContained=true --output &quot;$(_BundledCliPublishDir)&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <MakeDir Directories="$(_BundledCliRuntimeNativeDir)"
+             Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)"
+          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'lsl.dll'))"
+          Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)"
+          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliRuntimeNativeDir)', 'lsl.dll'))"
+          Condition="Exists('$(_BundledCliLslSource)')" />
+  </Target>
+
+</Project>
+

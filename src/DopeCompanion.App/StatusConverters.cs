@@ -1,0 +1,309 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Data;
+using System.Windows.Media;
+using DopeCompanion.Core.Models;
+
+namespace DopeCompanion.App;
+
+internal static class BrushResourceLookup
+{
+    public static object Muted() => Resource("MutedBrush", Brushes.Gray);
+
+    public static object Panel() => Resource("PanelBrush", Brushes.Transparent);
+
+    public static object PanelAlt() => Resource("PanelAltBrush", Brushes.Transparent);
+
+    public static object Success() => Resource("StatusSuccessBrush", Brushes.ForestGreen);
+
+    public static object SuccessSoft() => Resource("StatusSuccessSoftBrush", Brushes.Honeydew);
+
+    public static object Warning() => Resource("StatusWarningBrush", Brushes.Goldenrod);
+
+    public static object WarningSoft() => Resource("StatusWarningSoftBrush", Brushes.LemonChiffon);
+
+    public static object Failure() => Resource("StatusFailureBrush", Brushes.IndianRed);
+
+    public static object FailureSoft() => Resource("StatusFailureSoftBrush", Brushes.MistyRose);
+
+    public static object Info() => Resource("StatusInfoBrush", Brushes.SteelBlue);
+
+    public static object InfoSoft() => Resource("StatusInfoSoftBrush", Brushes.AliceBlue);
+
+    private static object Resource(string key, Brush fallback)
+        => Application.Current?.TryFindResource(key) ?? fallback;
+}
+
+public sealed class OutcomeKindToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not OperationOutcomeKind kind)
+            return BrushResourceLookup.Muted();
+
+        return kind switch
+        {
+            OperationOutcomeKind.Success => BrushResourceLookup.Success(),
+            OperationOutcomeKind.Warning => BrushResourceLookup.Warning(),
+            OperationOutcomeKind.Failure => BrushResourceLookup.Failure(),
+            _ => BrushResourceLookup.Muted(),
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class OutcomeKindToSoftBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not OperationOutcomeKind kind)
+            return BrushResourceLookup.Panel();
+
+        return kind switch
+        {
+            OperationOutcomeKind.Success => BrushResourceLookup.SuccessSoft(),
+            OperationOutcomeKind.Warning => BrushResourceLookup.WarningSoft(),
+            OperationOutcomeKind.Failure => BrushResourceLookup.FailureSoft(),
+            _ => BrushResourceLookup.Panel(),
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class BoolToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is bool b && b)
+            return BrushResourceLookup.Success();
+        return BrushResourceLookup.Failure();
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class BoolToSoftBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is bool b && b)
+            return BrushResourceLookup.SuccessSoft();
+        return BrushResourceLookup.FailureSoft();
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class BoolToStatusTextConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is bool b && b ? "Connected" : "Disconnected";
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class StatusDetailFormatterConverter : IValueConverter
+{
+    private static readonly Regex DetailSplitRegex = new(
+        @"(?:\s+\|\s+|;\s+|(?<=\.)\s+(?=[A-Z]))",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not string text || string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var lines = text
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SelectMany(line => DetailSplitRegex.Split(line))
+            .Select(segment => segment.Trim())
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToArray();
+
+        return lines.Length == 0
+            ? string.Empty
+            : string.Join(Environment.NewLine, lines);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class ActionLabelToIsEnablingConverter : IValueConverter
+{
+    private static readonly string[] EnablingPrefixes =
+    [
+        "Start ",
+        "Launch ",
+        "Wake ",
+        "Clear ",
+        "Enable ",
+        "Use Automatic",
+        "Particles On",
+        "On"
+    ];
+
+    private static readonly string[] DisablingPrefixes =
+    [
+        "Stop ",
+        "Exit ",
+        "Sleep ",
+        "Disable ",
+        "Pause ",
+        "Use Controller",
+        "Particles Off",
+        "Off"
+    ];
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not string rawLabel || string.IsNullOrWhiteSpace(rawLabel))
+        {
+            return DependencyProperty.UnsetValue;
+        }
+
+        var normalizedLabel = rawLabel.Trim();
+        if (normalizedLabel.EndsWith("...", StringComparison.Ordinal))
+        {
+            normalizedLabel = normalizedLabel[..^3].TrimEnd();
+        }
+
+        if (EnablingPrefixes.Any(prefix => normalizedLabel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (DisablingPrefixes.Any(prefix => normalizedLabel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return DependencyProperty.UnsetValue;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class LogLevelToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not OperatorLogLevel level)
+            return BrushResourceLookup.Muted();
+
+        return level switch
+        {
+            OperatorLogLevel.Warning => BrushResourceLookup.Warning(),
+            OperatorLogLevel.Failure => BrushResourceLookup.Failure(),
+            _ => BrushResourceLookup.Info(),
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class BatteryToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not int pct)
+            return BrushResourceLookup.Warning();
+
+        return pct switch
+        {
+            <= 15 => BrushResourceLookup.Failure(),
+            <= 35 => BrushResourceLookup.Warning(),
+            _ => BrushResourceLookup.Success(),
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class TagsToBadgeTextConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not IReadOnlyList<string> tags || tags.Count == 0)
+            return "Unknown";
+
+        bool isDope = tags.Any(t => t.Equals("dope", StringComparison.OrdinalIgnoreCase));
+        if (!isDope)
+        {
+            if (tags.Any(t => t.Equals("browser", StringComparison.OrdinalIgnoreCase)))
+                return "Browser";
+            if (tags.Any(t => t.Equals("utility", StringComparison.OrdinalIgnoreCase)))
+                return "Utility";
+            return "External";
+        }
+
+        if (tags.Any(t => t.Equals("twin", StringComparison.OrdinalIgnoreCase)))
+            return "Twin Mode";
+        if (tags.Any(t => t.Equals("lsl", StringComparison.OrdinalIgnoreCase)))
+            return "LSL Relay";
+        if (tags.Any(t => t.Equals("runtime", StringComparison.OrdinalIgnoreCase)))
+            return "Runtime";
+
+        return "DOPE";
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class TagsToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not IReadOnlyList<string> tags || tags.Count == 0)
+            return BrushResourceLookup.Muted();
+
+        bool isDope = tags.Any(t => t.Equals("dope", StringComparison.OrdinalIgnoreCase));
+        if (!isDope)
+            return BrushResourceLookup.Warning();
+
+        if (tags.Any(t => t.Equals("lsl", StringComparison.OrdinalIgnoreCase)))
+            return BrushResourceLookup.Info();
+
+        return BrushResourceLookup.Success();
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class TagsToSoftBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not IReadOnlyList<string> tags || tags.Count == 0)
+            return BrushResourceLookup.PanelAlt();
+
+        bool isDope = tags.Any(t => t.Equals("dope", StringComparison.OrdinalIgnoreCase));
+        if (!isDope)
+            return BrushResourceLookup.WarningSoft();
+
+        if (tags.Any(t => t.Equals("lsl", StringComparison.OrdinalIgnoreCase)))
+            return BrushResourceLookup.InfoSoft();
+
+        return BrushResourceLookup.SuccessSoft();
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}

@@ -1,0 +1,28 @@
+{
+  "apps": [
+    {
+      "id": "dope-projected-feed-colorama",
+      "label": "DOPE Projected Feed Colorama APK",
+      "packageId": "com.tillh.dynamicoscillatorypatternentrainment",
+      "apkFile": "DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk",
+      "launchComponent": "com.tillh.dynamicoscillatorypatternentrainment/com.unity3d.player.UnityPlayerGameActivity",
+      "browserPackageId": "com.oculus.browser",
+      "description": "Bundled public DOPE projected-feed multi-layer Colorama runtime. The current public companion mirrors install, launch, device-profile, and scene-profile staging for this APK while the Astral-style live twin and hotload bridge is being wired into the Unity runtime.",
+      "tags": [
+        "dope",
+        "projected-feed",
+        "colorama"
+      ]
+    }
+  ],
+  "bundles": [
+    {
+      "id": "dope-public-stack",
+      "label": "DOPE Public Stack",
+      "description": "Bundled projected-feed Colorama runtime plus the curated device and scene profile set used by the public DOPE operator app.",
+      "appIds": [
+        "dope-projected-feed-colorama"
+      ]
+    }
+  ]
+}

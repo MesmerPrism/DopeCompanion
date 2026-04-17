@@ -1,0 +1,112 @@
+# DOPE Companion
+
+DOPE Companion is the public Windows operator app for the Meta Quest APKs
+produced by
+`C:\Users\tillh\source\repos\Dynamic Oscillatory Pattern Entrainment`.
+
+This repo is intentionally separate from the Unity source repo. It ships the
+Windows-side install, launch, monitoring, runtime-config, and packaging
+surface, plus bundled approved APK payloads. It does not ship the Unity
+project itself.
+
+The current public focus is the projected-feed multi-layer Colorama scene from
+`Assets/Scenes/SynedelicaPassthroughOverlayMultiLayer.unity`. The bundled Quest
+runtime mirror is:
+
+- package id: `com.tillh.dynamicoscillatorypatternentrainment`
+- launch activity:
+  `com.tillh.dynamicoscillatorypatternentrainment/com.unity3d.player.UnityPlayerGameActivity`
+- mirrored APK:
+  `samples/quest-session-kit/APKs/DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk`
+- current bundled SHA256:
+  `E94FD2C48DAC8A26E82285C37B3D7D2D47C8A16F50334C5C3F2AD93C9F4142F3`
+
+The public operator surface follows the same delivery posture proven in
+`DopeCompanion`:
+
+- GitHub Pages is the stable install and docs surface.
+- GitHub Releases is the binary source of truth.
+- the release asset set includes a preview MSIX, `.appinstaller`, public
+  `.cer`, guided setup EXE, checksums, and portable zips.
+- signing and certificate handling follow the same preview-certificate
+  guidelines documented in the Agent Bureau and the sibling repo.
+
+Current status:
+
+- the Windows app scaffold is derived from the generic operator shell in
+  `DopeCompanion`
+- the bundled session kit now targets the DOPE projected-feed Colorama APK
+- the runtime-config editor exposes a dedicated `Projected Feed Colorama`
+  section with the multi-layer quad controls
+- the live `quest_twin_*` LSL path is scaffolded to match the
+  `AstralKarateDojo` twin contract, but the matching Unity-side bridge still
+  needs to be wired into the DOPE runtime before live publish/monitor claims
+  should be treated as complete
+
+## Scope
+
+This public repo ships:
+
+- WPF desktop operator shell
+- CLI and release packaging scaffold
+- Pages docs and install surface
+- bundled approved Quest APK mirrors
+- public runtime-config profiles for the projected-feed Colorama scene
+- sync tooling that refreshes the bundled APK mirror from the Unity source repo
+
+It does not ship:
+
+- the Unity source project
+- scene authoring code from the DOPE repo
+- unpublished private study presets
+- build-time scene mutation logic
+
+If the Quest runtime itself needs to change, do that first in
+`C:\Users\tillh\source\repos\Dynamic Oscillatory Pattern Entrainment`, then
+refresh the mirrored APK here.
+
+## Start Here
+
+- Docs home: [docs/index.md](docs/index.md)
+- Install guide: [docs/download.md](docs/download.md)
+- First operator pass: [docs/first-session.md](docs/first-session.md)
+- Runtime tuning surface: [docs/runtime-config.md](docs/runtime-config.md)
+- Public/private split: [docs/private-split.md](docs/private-split.md)
+
+## Development
+
+```powershell
+git clone <repo-url> DopeCompanion
+cd DopeCompanion
+git lfs install
+git lfs pull
+dotnet build DopeCompanion.sln
+dotnet test DopeCompanion.sln
+```
+
+If Windows policy blocks the unpackaged WPF build, use the repo launcher:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1
+```
+
+Build the Pages site locally with:
+
+```powershell
+npm install
+npm run pages:build
+```
+
+## Bundled APK Refresh
+
+Refresh the bundled projected-feed Colorama APK mirror from the Unity repo
+with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Dope-Apk.ps1
+```
+
+That copies the approved APK into `samples/quest-session-kit/APKs/` and updates
+the pinned compatibility hash used by the public operator app and release
+artifacts.
+

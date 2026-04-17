@@ -1,0 +1,28 @@
+{
+  "profiles": [
+    {
+      "id": "dope-projected-feed-balanced",
+      "label": "DOPE Projected Feed Balanced",
+      "description": "Balanced Quest profile for the projected-feed Colorama quad scene. Keeps the effect stable without pushing the headset to the highest CPU and GPU levels.",
+      "props": {
+        "debug.oculus.cpuLevel": "4",
+        "debug.oculus.gpuLevel": "4",
+        "debug.oculus.foveation.dynamic": "false",
+        "debug.oculus.foveation.level": "1",
+        "debug.dope.profile": "projected-feed-balanced"
+      }
+    },
+    {
+      "id": "dope-projected-feed-quality",
+      "label": "DOPE Projected Feed Quality",
+      "description": "Higher Quest performance profile for the projected-feed Colorama quad scene when the operator wants more headroom for the multi-layer overlay pass.",
+      "props": {
+        "debug.oculus.cpuLevel": "5",
+        "debug.oculus.gpuLevel": "5",
+        "debug.oculus.foveation.dynamic": "false",
+        "debug.oculus.foveation.level": "1",
+        "debug.dope.profile": "projected-feed-quality"
+      }
+    }
+  ]
+}
