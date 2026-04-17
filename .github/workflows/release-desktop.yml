@@ -23,7 +23,7 @@ jobs:
       PACKAGE_PUBLISHER_DISPLAY_NAME: Mesmer Prism
       PACKAGE_FILE_NAME: DopeCompanion.msix
       PREVIEW_SETUP_FILE_NAME: DopeCompanion-Preview-Setup.exe
-      PINNED_PREVIEW_SETUP_TAG: v0.1.0
+      PINNED_PREVIEW_SETUP_TAG: v0.1.1
       APPINSTALLER_FILE_NAME: DopeCompanion.appinstaller
       CERTIFICATE_FILE_NAME: DopeCompanion.cer
       APPINSTALLER_URI: https://github.com/${{ github.repository }}/releases/latest/download/DopeCompanion.appinstaller
