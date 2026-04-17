@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [string]$Version = '0.1.58.0',
+    [string]$Version = '0.1.0.0',
     [string]$PackageId = 'MesmerPrism.DopeCompanionPreview',
     [string]$Publisher = 'CN=MesmerPrism',
     [string]$DisplayName = 'DOPE Companion Preview',

@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('win-x64')]
     [string]$RuntimeIdentifier = 'win-x64',
-    [string]$Version = '0.1.58.0',
+    [string]$Version = '0.1.0.0',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
     [string]$FileName = 'DopeCompanion-Preview-Setup.exe',
     [string]$PackageCertificatePath,
