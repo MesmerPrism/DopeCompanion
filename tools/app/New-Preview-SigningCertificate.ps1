@@ -16,6 +16,7 @@ param(
     [string]$CerFileName = 'DopeCompanion.cer',
     [string]$Base64FileName = 'DopeCompanion-preview-signing.base64.txt',
     [string]$PasswordFileName = 'preview-password.txt',
+    [string]$ExistingThumbprint,
     [SecureString]$Password
 )
 
@@ -30,17 +31,37 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 
-$notAfter = (Get-Date).Date.AddYears($ValidYears)
-$cert = New-SelfSignedCertificate `
-    -Type CodeSigningCert `
-    -Subject $Subject `
-    -FriendlyName $FriendlyName `
-    -CertStoreLocation 'Cert:\CurrentUser\My' `
-    -HashAlgorithm 'SHA256' `
-    -KeyAlgorithm 'RSA' `
-    -KeyLength 4096 `
-    -KeyExportPolicy Exportable `
-    -NotAfter $notAfter
+if ([string]::IsNullOrWhiteSpace($ExistingThumbprint)) {
+    $notAfter = (Get-Date).Date.AddYears($ValidYears)
+    $cert = New-SelfSignedCertificate `
+        -Type CodeSigningCert `
+        -Subject $Subject `
+        -FriendlyName $FriendlyName `
+        -CertStoreLocation 'Cert:\CurrentUser\My' `
+        -HashAlgorithm 'SHA256' `
+        -KeyAlgorithm 'RSA' `
+        -KeyLength 4096 `
+        -KeyExportPolicy Exportable `
+        -NotAfter $notAfter
+
+    $actionLabel = 'Created'
+}
+else {
+    $normalizedThumbprint = ($ExistingThumbprint -replace '\s+', '').ToUpperInvariant()
+    $cert = Get-ChildItem Cert:\CurrentUser\My,Cert:\LocalMachine\My |
+        Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+        Select-Object -First 1
+
+    if ($null -eq $cert) {
+        throw "Existing certificate with thumbprint $normalizedThumbprint was not found in CurrentUser\\My or LocalMachine\\My."
+    }
+
+    if (-not $cert.HasPrivateKey) {
+        throw "Existing certificate $normalizedThumbprint does not have an exportable private key."
+    }
+
+    $actionLabel = 'Exported existing'
+}
 
 $pfxPath = Join-Path $outputPath $PfxFileName
 $cerPath = Join-Path $outputPath $CerFileName
@@ -59,7 +80,8 @@ $plainPassword = [System.Net.NetworkCredential]::new('', $Password).Password
     $plainPassword,
     [System.Text.UTF8Encoding]::new($false))
 
-Write-Host "Created self-signed DOPE Companion preview certificate." -ForegroundColor Green
+Write-Host "$actionLabel DOPE Companion preview certificate bundle." -ForegroundColor Green
+Write-Host "Signer thumbprint: $($cert.Thumbprint)" -ForegroundColor Green
 Write-Host "PFX : $pfxPath"
 Write-Host "CER : $cerPath"
 Write-Host "B64 : $base64Path"
