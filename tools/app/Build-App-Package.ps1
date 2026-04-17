@@ -34,12 +34,29 @@ $ErrorActionPreference = 'Stop'
 $defaultTimestampUrl = 'http://timestamp.digicert.com'
 
 function Find-MSBuild {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path $vswhere) {
+        $matches = & $vswhere -latest -prerelease -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe'
+        if ($LASTEXITCODE -eq 0 -and $matches) {
+            return $matches | Select-Object -First 1
+        }
+
+        $matches = & $vswhere -latest -prerelease -products * -find 'MSBuild\**\Bin\MSBuild.exe'
+        if ($LASTEXITCODE -eq 0 -and $matches) {
+            return $matches | Select-Object -First 1
+        }
+    }
+
     $command = Get-Command msbuild -ErrorAction SilentlyContinue
     if ($command) {
         return $command.Source
     }
 
     $wellKnownPaths = @(
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\Community\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\Professional\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\Enterprise\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\BuildTools\MSBuild\Current\Bin\MSBuild.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe'),
@@ -48,19 +65,6 @@ function Find-MSBuild {
     foreach ($path in $wellKnownPaths) {
         if (Test-Path $path) {
             return $path
-        }
-    }
-
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    if (Test-Path $vswhere) {
-        $matches = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe'
-        if ($LASTEXITCODE -eq 0 -and $matches) {
-            return $matches | Select-Object -First 1
-        }
-
-        $matches = & $vswhere -latest -products * -find 'MSBuild\**\Bin\MSBuild.exe'
-        if ($LASTEXITCODE -eq 0 -and $matches) {
-            return $matches | Select-Object -First 1
         }
     }
 
@@ -172,10 +176,26 @@ function Initialize-DotNetSdkResolver {
         return
     }
 
-    $sdkDir = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^10\.' -and (Test-Path (Join-Path $_.FullName 'Sdks')) } |
+    $sdkCandidates = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^10\.' -and (Test-Path (Join-Path $_.FullName 'Sdks')) }
+
+    if ($null -eq $sdkCandidates -or $sdkCandidates.Count -eq 0) {
+        return
+    }
+
+    $stableSdkDir = $sdkCandidates |
+        Where-Object { $_.Name -notmatch '-' } |
         Sort-Object Name -Descending |
         Select-Object -First 1
+
+    $sdkDir = if ($null -ne $stableSdkDir) {
+        $stableSdkDir
+    }
+    else {
+        $sdkCandidates |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+    }
 
     if ($null -eq $sdkDir) {
         return
@@ -185,6 +205,52 @@ function Initialize-DotNetSdkResolver {
     $env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR = $dotnetRoot
     $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR = Join-Path $sdkDir.FullName 'Sdks'
     $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER = $sdkDir.Name
+}
+
+function Publish-BundledCliPayload {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CliProjectPath,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$Configuration,
+        [Parameter(Mandatory = $true)]
+        [string]$Platform,
+        [string]$PackagePayloadRoot
+    )
+
+    if (Test-Path $DestinationRoot) {
+        Remove-Item -Recurse -Force $DestinationRoot
+    }
+
+    New-Item -ItemType Directory -Force -Path $DestinationRoot | Out-Null
+
+    $publishArgs = @(
+        'publish',
+        $CliProjectPath,
+        '--configuration', $Configuration,
+        '--runtime', "win-$Platform",
+        '-p:PublishSingleFile=true',
+        '-p:SelfContained=true',
+        '--output', $DestinationRoot
+    )
+
+    Write-Host "Publishing bundled CLI payload to $DestinationRoot" -ForegroundColor Cyan
+    dotnet @publishArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish failed for bundled CLI payload with exit code $LASTEXITCODE"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PackagePayloadRoot)) {
+        $sourceLslPath = Join-Path $PackagePayloadRoot "runtimes\win-$Platform\native\lsl.dll"
+        if (Test-Path $sourceLslPath) {
+            $runtimeNativeRoot = Join-Path $DestinationRoot "runtimes\win-$Platform\native"
+            New-Item -ItemType Directory -Force -Path $runtimeNativeRoot | Out-Null
+            Copy-Item -Force $sourceLslPath (Join-Path $DestinationRoot 'lsl.dll')
+            Copy-Item -Force $sourceLslPath (Join-Path $runtimeNativeRoot 'lsl.dll')
+        }
+    }
 }
 
 function Set-ManifestValue {
@@ -226,6 +292,7 @@ if (-not $Unsigned) {
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $entryProjectPath = Join-Path $repoRoot 'src\DopeCompanion.App\DopeCompanion.App.csproj'
+$cliProjectPath = Join-Path $repoRoot 'src\DopeCompanion.Cli\DopeCompanion.Cli.csproj'
 $packageProjectDir = Join-Path $repoRoot 'src\DopeCompanion.App.Package'
 $packageProjectPath = Join-Path $packageProjectDir 'DopeCompanion.App.Package.wapproj'
 $packageLayoutRoot = Join-Path $packageProjectDir "bin\$Platform\$Configuration"
@@ -242,6 +309,10 @@ if (-not (Test-Path $packageProjectPath)) {
 
 if (-not (Test-Path $entryProjectPath)) {
     throw "Entry project not found at $entryProjectPath"
+}
+
+if (-not (Test-Path $cliProjectPath)) {
+    throw "CLI project not found at $cliProjectPath"
 }
 
 if (-not (Test-Path $manifestPath)) {
@@ -332,6 +403,14 @@ try {
     if (-not (Test-Path $packagePayloadRoot)) {
         throw "Packaged desktop payload was not produced at $packagePayloadRoot"
     }
+
+    $bundledCliRoot = Join-Path $packagePayloadRoot 'cli\current'
+    Publish-BundledCliPayload `
+        -CliProjectPath $cliProjectPath `
+        -DestinationRoot $bundledCliRoot `
+        -Configuration $Configuration `
+        -Platform $Platform `
+        -PackagePayloadRoot $packagePayloadRoot
 
     $makeAppxPath = Find-WindowsSdkTool -ToolName 'makeappx.exe'
     if (-not $Unsigned) {

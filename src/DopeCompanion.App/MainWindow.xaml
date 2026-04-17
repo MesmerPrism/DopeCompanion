@@ -1546,7 +1546,7 @@
                                                        Margin="0,8,0,0" />
                                         </StackPanel>
                                     </Border>
-                                    <TextBlock Text="Detailed tools: Quest Library covers catalog choices, Runtime Config mirrors the Astral inspector, Twin Monitor compares requested vs reported values, and Diagnostics keeps the operator log."
+                                    <TextBlock Text="Detailed tools: Quest Library covers catalog choices, Runtime Config mirrors the Astral inspector, Twin Monitor compares requested vs reported values, Windows Environment covers operator-side diagnostics, and Diagnostics keeps the operator log."
                                                Style="{StaticResource MicroCaptionStyle}"
                                                Margin="0,12,0,0" />
                                 </StackPanel>
@@ -2439,6 +2439,247 @@
                     </Border>
                     </Grid>
                     </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Windows Environment"
+                     Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Grid Margin="4,16,4,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="0.95*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="1.05*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <Border Style="{StaticResource PanelBorderStyle}"
+                                    Background="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Windows Environment" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="The public DOPE app keeps the Windows-only checks in the main operator shell instead of pushing them into a separate study workspace."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <TextBlock Text="{Binding WindowsEnvironmentAnalysisSummary}"
+                                               FontSize="18"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WindowsEnvironmentAnalysisTimestampLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding WindowsEnvironmentAnalysisDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Content="Analyze Windows Environment"
+                                                Command="{Binding AnalyzeWindowsEnvironmentCommand}" />
+                                        <Button Content="Refresh Wi-Fi Router"
+                                                Command="{Binding RefreshWifiRouterDiagnosticsCommand}" />
+                                        <Button Content="Refresh Quest Profile"
+                                                Command="{Binding RefreshDeviceProfileDiagnosticsCommand}" />
+                                        <Button Content="Generate Diagnostics Report"
+                                                Command="{Binding GenerateDiagnosticsReportCommand}" />
+                                        <Button Content="Open Agent Workspace"
+                                                Command="{Binding OpenLocalAgentWorkspaceCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PanelBorderStyle}" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Host-Visible Paths" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="The guided installer, exported local-agent workspace, and app diagnostics should agree on these Windows-side locations."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+
+                                    <TextBlock Text="Operator data root" Style="{StaticResource EyebrowStyle}" Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding OperatorDataRootPath}"
+                                               Style="{StaticResource InspectorKeyStyle}"
+                                               Margin="0,6,0,0" />
+
+                                    <TextBlock Text="Managed tooling root" Style="{StaticResource EyebrowStyle}" Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding ManagedToolingRootPath}"
+                                               Style="{StaticResource InspectorKeyStyle}"
+                                               Margin="0,6,0,0" />
+
+                                    <TextBlock Text="Local agent workspace" Style="{StaticResource EyebrowStyle}" Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding LocalAgentWorkspacePath}"
+                                               Style="{StaticResource InspectorKeyStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding LocalAgentWorkspaceDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap" />
+
+                                    <TextBlock Text="Bundled CLI export" Style="{StaticResource EyebrowStyle}" Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding BundledCliExportPath}"
+                                               Style="{StaticResource InspectorKeyStyle}"
+                                               Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PanelBorderStyle}"
+                                    Margin="0,16,0,0"
+                                    Background="{Binding DiagnosticsReportLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding DiagnosticsReportLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Diagnostics Report" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding DiagnosticsReportSummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding DiagnosticsReportLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding DiagnosticsReportTimestampLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding DiagnosticsReportDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding DiagnosticsReportPdfPath}"
+                                               Style="{StaticResource InspectorKeyStyle}"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Content="Generate Report"
+                                                Command="{Binding GenerateDiagnosticsReportCommand}" />
+                                        <Button Content="Open Report Folder"
+                                                Command="{Binding OpenDiagnosticsReportFolderCommand}"
+                                                IsEnabled="{Binding CanOpenDiagnosticsReportFolder}" />
+                                        <Button Content="Open Report PDF"
+                                                Command="{Binding OpenDiagnosticsReportPdfCommand}"
+                                                IsEnabled="{Binding CanOpenDiagnosticsReportPdf}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <Grid Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="16" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="16" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0"
+                                        Style="{StaticResource PanelBorderStyle}"
+                                        Background="{Binding WifiRouterDiagnosticsLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                        BorderBrush="{Binding WifiRouterDiagnosticsLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                    <StackPanel>
+                                        <TextBlock Text="Wi-Fi Router Path" Style="{StaticResource SectionTitleStyle}" />
+                                        <TextBlock Text="{Binding WifiRouterDiagnosticsSummary}"
+                                                   FontSize="16"
+                                                   FontWeight="Bold"
+                                                   Foreground="{Binding WifiRouterDiagnosticsLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding WifiRouterDiagnosticsTimestampLabel}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding WifiRouterDiagnosticsDetail}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <Button Content="Refresh Wi-Fi Router Diagnostics"
+                                                Command="{Binding RefreshWifiRouterDiagnosticsCommand}"
+                                                Margin="0,12,0,0" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Column="2"
+                                        Style="{StaticResource PanelBorderStyle}"
+                                        Background="{Binding DeviceProfileDiagnosticsLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                        BorderBrush="{Binding DeviceProfileDiagnosticsLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                    <StackPanel>
+                                        <TextBlock Text="Quest Profile" Style="{StaticResource SectionTitleStyle}" />
+                                        <TextBlock Text="{Binding DeviceProfileDiagnosticsLabel}"
+                                                   Style="{StaticResource EyebrowStyle}" />
+                                        <TextBlock Text="{Binding DeviceProfileDiagnosticsSummary}"
+                                                   FontSize="16"
+                                                   FontWeight="Bold"
+                                                   Foreground="{Binding DeviceProfileDiagnosticsLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                   Margin="0,8,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding DeviceProfileDiagnosticsTimestampLabel}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding DeviceProfileDiagnosticsDetail}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <Button Content="Refresh Quest Profile Diagnostics"
+                                                Command="{Binding RefreshDeviceProfileDiagnosticsCommand}"
+                                                Margin="0,12,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <Border Grid.Row="2" Style="{StaticResource PanelBorderStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Windows Environment Checks" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="This is the same Windows-side tooling, liblsl, discovery, and transport posture check that the companion uses when diagnosing report failures."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <ItemsControl ItemsSource="{Binding WindowsEnvironmentChecks}"
+                                                  Margin="0,12,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Margin="0,0,0,8"
+                                                        Padding="10"
+                                                        Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                                        BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="8">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Label}" Style="{StaticResource EyebrowStyle}" />
+                                                        <TextBlock Text="{Binding Summary}"
+                                                                   FontWeight="Bold"
+                                                                   Margin="0,4,0,0"
+                                                                   TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding Detail}"
+                                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                                   Margin="0,6,0,0"
+                                                                   TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="4" Style="{StaticResource PanelBorderStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Quest Profile Details" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="The selected device profile is checked against the live headset so CPU, GPU, brightness, volume, and battery-floor assumptions are visible before a session starts."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <DataGrid Margin="0,12,0,0"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              IsReadOnly="True"
+                                              MinHeight="260"
+                                              MaxHeight="460"
+                                              ItemsSource="{Binding DeviceProfileDiagnosticsRows}">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Property" Binding="{Binding Label}" Width="160" />
+                                            <DataGridTextColumn Header="Expected" Binding="{Binding Expected}" Width="130" />
+                                            <DataGridTextColumn Header="Reported" Binding="{Binding Value}" Width="130" />
+                                            <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="*" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </ScrollViewer>
             </TabItem>
 
             <TabItem Header="Diagnostics"

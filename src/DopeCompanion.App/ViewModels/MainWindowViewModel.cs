@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -28,11 +29,17 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IQuestControlService _questService;
     private readonly IHzdbService _hzdbService = HzdbServiceFactory.CreateDefault();
     private readonly ILslMonitorService _monitorService = LslMonitorServiceFactory.CreateDefault();
+    private readonly ILslStreamDiscoveryService _lslStreamDiscoveryService = LslStreamDiscoveryServiceFactory.CreateDefault();
+    private readonly IStudyClockAlignmentService _clockAlignmentService = StudyClockAlignmentServiceFactory.CreateDefault();
+    private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
     private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateShared();
+    private readonly WindowsEnvironmentAnalysisService _windowsEnvironmentAnalysisService;
+    private readonly QuestWifiTransportDiagnosticsService _questWifiTransportDiagnosticsService = new();
     private readonly SessionManifestWriter _manifestWriter = new();
     private readonly RuntimeConfigWorkspaceViewModel _runtimeConfig = new();
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
     private readonly DopeParticleSizeTuningCompiler _dopeParticleSizeTuningCompiler = new();
+    private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly Dispatcher _dispatcher;
     private readonly Dictionary<string, string> _apkOverrides = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TwinModeCommand> _twinCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -133,12 +140,37 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _twinPublisherLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _twinAppStateLevel = OperationOutcomeKind.Preview;
     private int _selectedTabIndex;
+    private HeadsetAppStatus? _latestHeadsetStatus;
+    private OperationOutcomeKind _windowsEnvironmentAnalysisLevel = OperationOutcomeKind.Preview;
+    private string _windowsEnvironmentAnalysisSummary = "No Windows environment analysis has been run yet.";
+    private string _windowsEnvironmentAnalysisDetail = "Run Analyze Windows Environment to check local tooling, liblsl, twin transport, and expected upstream sender visibility on this PC.";
+    private string _windowsEnvironmentAnalysisTimestampLabel = "Not run yet.";
+    private OperationOutcomeKind _deviceProfileDiagnosticsLevel = OperationOutcomeKind.Preview;
+    private string _deviceProfileDiagnosticsSummary = "Quest profile diagnostics have not been run yet.";
+    private string _deviceProfileDiagnosticsDetail = "Refresh the selected device profile status to compare the intended Quest properties against the current headset values.";
+    private string _deviceProfileDiagnosticsTimestampLabel = "Not checked yet.";
+    private OperationOutcomeKind _wifiRouterDiagnosticsLevel = OperationOutcomeKind.Preview;
+    private string _wifiRouterDiagnosticsSummary = "Wi-Fi router path not checked yet.";
+    private string _wifiRouterDiagnosticsDetail = "Refresh the Wi-Fi router diagnostics after connecting the Quest over Wi-Fi ADB to verify the active TCP path and SSID topology.";
+    private string _wifiRouterDiagnosticsTimestampLabel = "Not checked yet.";
+    private OperationOutcomeKind _diagnosticsReportLevel = OperationOutcomeKind.Preview;
+    private string _diagnosticsReportSummary = "No DOPE diagnostics report has been generated yet.";
+    private string _diagnosticsReportDetail = "Generate a shareable report when Windows LSL, quest_twin_state, or command acceptance needs to be diagnosed without relying on screenshots.";
+    private string _diagnosticsReportTimestampLabel = "Not generated yet.";
+    private string _diagnosticsReportFolderPath = string.Empty;
+    private string _diagnosticsReportPdfPath = string.Empty;
 
     public MainWindowViewModel()
     {
         _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _sessionState = AppSessionState.Load();
         _questService = QuestControlServiceFactory.CreateDefault(_sessionState.ActiveEndpoint);
+        _windowsEnvironmentAnalysisService = new WindowsEnvironmentAnalysisService(
+            _monitorService,
+            _lslStreamDiscoveryService,
+            _clockAlignmentService,
+            _testLslSignalService,
+            _twinBridge);
         _endpointDraft = _sessionState.ActiveEndpoint ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(_sessionState.ActiveEndpoint))
         {
@@ -195,6 +227,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         PublishRuntimeConfigCommand = new AsyncRelayCommand(PublishRuntimeConfigAsync);
         SendTwinCommandCommand = new AsyncRelayCommand(SendTwinCommandAsync);
         RunUtilityCommand = new AsyncRelayCommand(RunUtilityAsync);
+        AnalyzeWindowsEnvironmentCommand = new AsyncRelayCommand(AnalyzeWindowsEnvironmentAsync);
+        RefreshDeviceProfileDiagnosticsCommand = new AsyncRelayCommand(RefreshDeviceProfileDiagnosticsAsync);
+        RefreshWifiRouterDiagnosticsCommand = new AsyncRelayCommand(RefreshWifiRouterDiagnosticsAsync);
+        GenerateDiagnosticsReportCommand = new AsyncRelayCommand(GenerateDiagnosticsReportAsync);
+        OpenDiagnosticsReportFolderCommand = new AsyncRelayCommand(OpenDiagnosticsReportFolderAsync);
+        OpenDiagnosticsReportPdfCommand = new AsyncRelayCommand(OpenDiagnosticsReportPdfAsync);
+        OpenLocalAgentWorkspaceCommand = new AsyncRelayCommand(OpenLocalAgentWorkspaceAsync);
         RefreshDopeParticleTuningState();
     }
 
@@ -318,6 +357,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<TwinInspectorRow> TwinInspectorRows { get; } = new();
 
+    public ObservableCollection<WorkflowGuideCheckItem> WindowsEnvironmentChecks { get; } = new();
+
+    public ObservableCollection<StudyStatusRowViewModel> DeviceProfileDiagnosticsRows { get; } = new();
+
     public ObservableCollection<ActionChoice<QuestUtilityAction>> UtilityActions { get; } = new(
     [
         new ActionChoice<QuestUtilityAction>("Home", "Return to the Quest launcher.", QuestUtilityAction.Home),
@@ -383,6 +426,20 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand SendTwinCommandCommand { get; }
 
     public AsyncRelayCommand RunUtilityCommand { get; }
+
+    public AsyncRelayCommand AnalyzeWindowsEnvironmentCommand { get; }
+
+    public AsyncRelayCommand RefreshDeviceProfileDiagnosticsCommand { get; }
+
+    public AsyncRelayCommand RefreshWifiRouterDiagnosticsCommand { get; }
+
+    public AsyncRelayCommand GenerateDiagnosticsReportCommand { get; }
+
+    public AsyncRelayCommand OpenDiagnosticsReportFolderCommand { get; }
+
+    public AsyncRelayCommand OpenDiagnosticsReportPdfCommand { get; }
+
+    public AsyncRelayCommand OpenLocalAgentWorkspaceCommand { get; }
 
     public string CatalogStatus
     {
@@ -817,8 +874,154 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public DeviceProfile? SelectedDeviceProfile
     {
         get => _selectedDeviceProfile;
-        set => SetProperty(ref _selectedDeviceProfile, value);
+        set
+        {
+            if (SetProperty(ref _selectedDeviceProfile, value))
+            {
+                OnPropertyChanged(nameof(DeviceProfileDiagnosticsLabel));
+            }
+        }
     }
+
+    public string OperatorDataRootPath => CompanionOperatorDataLayout.RootPath;
+
+    public string ManagedToolingRootPath => OfficialQuestToolingLayout.RootPath;
+
+    public string LocalAgentWorkspacePath => _localAgentWorkspaceService.RootPath;
+
+    public string LocalAgentWorkspaceDetail
+        => "Open this host-visible workspace to mirror the bundled CLI, docs, and sample catalogs out of WindowsApps for local-agent or terminal use.";
+
+    public string BundledCliExportPath => LocalAgentWorkspaceLayout.BundledCliExecutablePath;
+
+    public string DeviceProfileDiagnosticsLabel
+        => ResolveDiagnosticsDeviceProfile()?.Label ?? "No Quest profile selected.";
+
+    public OperationOutcomeKind WindowsEnvironmentAnalysisLevel
+    {
+        get => _windowsEnvironmentAnalysisLevel;
+        private set => SetProperty(ref _windowsEnvironmentAnalysisLevel, value);
+    }
+
+    public string WindowsEnvironmentAnalysisSummary
+    {
+        get => _windowsEnvironmentAnalysisSummary;
+        private set => SetProperty(ref _windowsEnvironmentAnalysisSummary, value);
+    }
+
+    public string WindowsEnvironmentAnalysisDetail
+    {
+        get => _windowsEnvironmentAnalysisDetail;
+        private set => SetProperty(ref _windowsEnvironmentAnalysisDetail, value);
+    }
+
+    public string WindowsEnvironmentAnalysisTimestampLabel
+    {
+        get => _windowsEnvironmentAnalysisTimestampLabel;
+        private set => SetProperty(ref _windowsEnvironmentAnalysisTimestampLabel, value);
+    }
+
+    public OperationOutcomeKind DeviceProfileDiagnosticsLevel
+    {
+        get => _deviceProfileDiagnosticsLevel;
+        private set => SetProperty(ref _deviceProfileDiagnosticsLevel, value);
+    }
+
+    public string DeviceProfileDiagnosticsSummary
+    {
+        get => _deviceProfileDiagnosticsSummary;
+        private set => SetProperty(ref _deviceProfileDiagnosticsSummary, value);
+    }
+
+    public string DeviceProfileDiagnosticsDetail
+    {
+        get => _deviceProfileDiagnosticsDetail;
+        private set => SetProperty(ref _deviceProfileDiagnosticsDetail, value);
+    }
+
+    public string DeviceProfileDiagnosticsTimestampLabel
+    {
+        get => _deviceProfileDiagnosticsTimestampLabel;
+        private set => SetProperty(ref _deviceProfileDiagnosticsTimestampLabel, value);
+    }
+
+    public OperationOutcomeKind WifiRouterDiagnosticsLevel
+    {
+        get => _wifiRouterDiagnosticsLevel;
+        private set => SetProperty(ref _wifiRouterDiagnosticsLevel, value);
+    }
+
+    public string WifiRouterDiagnosticsSummary
+    {
+        get => _wifiRouterDiagnosticsSummary;
+        private set => SetProperty(ref _wifiRouterDiagnosticsSummary, value);
+    }
+
+    public string WifiRouterDiagnosticsDetail
+    {
+        get => _wifiRouterDiagnosticsDetail;
+        private set => SetProperty(ref _wifiRouterDiagnosticsDetail, value);
+    }
+
+    public string WifiRouterDiagnosticsTimestampLabel
+    {
+        get => _wifiRouterDiagnosticsTimestampLabel;
+        private set => SetProperty(ref _wifiRouterDiagnosticsTimestampLabel, value);
+    }
+
+    public OperationOutcomeKind DiagnosticsReportLevel
+    {
+        get => _diagnosticsReportLevel;
+        private set => SetProperty(ref _diagnosticsReportLevel, value);
+    }
+
+    public string DiagnosticsReportSummary
+    {
+        get => _diagnosticsReportSummary;
+        private set => SetProperty(ref _diagnosticsReportSummary, value);
+    }
+
+    public string DiagnosticsReportDetail
+    {
+        get => _diagnosticsReportDetail;
+        private set => SetProperty(ref _diagnosticsReportDetail, value);
+    }
+
+    public string DiagnosticsReportTimestampLabel
+    {
+        get => _diagnosticsReportTimestampLabel;
+        private set => SetProperty(ref _diagnosticsReportTimestampLabel, value);
+    }
+
+    public string DiagnosticsReportFolderPath
+    {
+        get => _diagnosticsReportFolderPath;
+        private set
+        {
+            if (SetProperty(ref _diagnosticsReportFolderPath, NormalizeHostVisibleOperatorPath(value)))
+            {
+                OnPropertyChanged(nameof(CanOpenDiagnosticsReportFolder));
+            }
+        }
+    }
+
+    public string DiagnosticsReportPdfPath
+    {
+        get => _diagnosticsReportPdfPath;
+        private set
+        {
+            if (SetProperty(ref _diagnosticsReportPdfPath, NormalizeHostVisibleOperatorPath(value)))
+            {
+                OnPropertyChanged(nameof(CanOpenDiagnosticsReportPdf));
+            }
+        }
+    }
+
+    public bool CanOpenDiagnosticsReportFolder
+        => CompanionOperatorDataLayout.TryResolveExistingDirectory(DiagnosticsReportFolderPath, out _);
+
+    public bool CanOpenDiagnosticsReportPdf
+        => CompanionOperatorDataLayout.TryResolveExistingFile(DiagnosticsReportPdfPath, out _);
 
     public string MonitorValueLabel => $"{MonitorValue:0.000}";
 
@@ -1209,6 +1412,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         _monitorCts?.Cancel();
         _monitorCts?.Dispose();
+        _testLslSignalService.Dispose();
         _runtimeConfig.PropertyChanged -= OnRuntimeConfigPropertyChanged;
         ActiveStudyShell?.Dispose();
 
@@ -1811,6 +2015,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var outcome = await _questService.ApplyDeviceProfileAsync(SelectedDeviceProfile).ConfigureAwait(false);
         await ApplyOutcomeAsync("Apply Device Profile", outcome).ConfigureAwait(false);
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+        await RefreshDeviceProfileDiagnosticsAsync().ConfigureAwait(false);
     }
 
     private async Task ApplyPerformanceLevelsAsync()
@@ -1926,6 +2131,385 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             RefreshRuntimeContextLabels();
             RefreshLiveTwinState();
         }).ConfigureAwait(false);
+
+        _latestHeadsetStatus = status;
+    }
+
+    private async Task AnalyzeWindowsEnvironmentAsync()
+    {
+        WindowsEnvironmentAnalysisResult result;
+        try
+        {
+            result = await _windowsEnvironmentAnalysisService
+                .AnalyzeAsync(BuildWindowsEnvironmentAnalysisRequest())
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await ApplyOutcomeAsync(
+                "Analyze Windows Environment",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Windows environment analysis failed.",
+                    exception.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() => ApplyWindowsEnvironmentAnalysisResult(result)).ConfigureAwait(false);
+        await ApplyOutcomeAsync(
+            "Analyze Windows Environment",
+            new OperationOutcome(
+                result.Level,
+                result.Summary,
+                BuildWindowsEnvironmentActionDetail(result))).ConfigureAwait(false);
+    }
+
+    private async Task RefreshDeviceProfileDiagnosticsAsync()
+    {
+        var profile = ResolveDiagnosticsDeviceProfile();
+        if (profile is null)
+        {
+            await ApplyOutcomeAsync(
+                "Refresh Quest Profile Diagnostics",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Quest profile diagnostics are blocked.",
+                    "Select a device profile first, or keep the bundled projected-feed Colorama profile available in the diagnostics catalog.")).ConfigureAwait(false);
+            return;
+        }
+
+        DeviceProfileStatus status;
+        try
+        {
+            status = await _questService.QueryDeviceProfileStatusAsync(profile).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() =>
+            {
+                DeviceProfileDiagnosticsLevel = OperationOutcomeKind.Failure;
+                DeviceProfileDiagnosticsSummary = "Quest profile diagnostics failed.";
+                DeviceProfileDiagnosticsDetail = exception.Message;
+                DeviceProfileDiagnosticsTimestampLabel = $"Failed {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+                ReplaceStudyStatusRows(DeviceProfileDiagnosticsRows, []);
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                "Refresh Quest Profile Diagnostics",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Quest profile diagnostics failed.",
+                    exception.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() => ApplyDeviceProfileDiagnosticsResult(status)).ConfigureAwait(false);
+        await ApplyOutcomeAsync(
+            "Refresh Quest Profile Diagnostics",
+            new OperationOutcome(
+                status.IsActive ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+                status.Summary,
+                status.Detail)).ConfigureAwait(false);
+    }
+
+    private async Task RefreshWifiRouterDiagnosticsAsync()
+    {
+        if (_latestHeadsetStatus?.IsConnected != true)
+        {
+            await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+        }
+
+        if (_latestHeadsetStatus?.IsConnected != true)
+        {
+            await DispatchAsync(() =>
+            {
+                WifiRouterDiagnosticsLevel = OperationOutcomeKind.Preview;
+                WifiRouterDiagnosticsSummary = "Wi-Fi router path not checked yet.";
+                WifiRouterDiagnosticsDetail = "Connect the headset first. Once the public flow is on Wi-Fi ADB, this page can verify the current router path.";
+                WifiRouterDiagnosticsTimestampLabel = "Not checked yet.";
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                "Refresh Wi-Fi Router Diagnostics",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Wi-Fi router diagnostics are blocked.",
+                    "Connect the headset first so the current Wi-Fi ADB selector and SSID topology are available.")).ConfigureAwait(false);
+            return;
+        }
+
+        QuestWifiTransportDiagnosticsResult result;
+        try
+        {
+            result = await _questWifiTransportDiagnosticsService
+                .AnalyzeAsync(_latestHeadsetStatus, ResolveHeadsetActionSelector())
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() =>
+            {
+                WifiRouterDiagnosticsLevel = OperationOutcomeKind.Failure;
+                WifiRouterDiagnosticsSummary = "Wi-Fi router diagnostics failed.";
+                WifiRouterDiagnosticsDetail = exception.Message;
+                WifiRouterDiagnosticsTimestampLabel = $"Failed {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                "Refresh Wi-Fi Router Diagnostics",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Wi-Fi router diagnostics failed.",
+                    exception.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() => ApplyWifiRouterDiagnosticsResult(result)).ConfigureAwait(false);
+        await ApplyOutcomeAsync(
+            "Refresh Wi-Fi Router Diagnostics",
+            new OperationOutcome(
+                result.Level,
+                result.Summary,
+                result.Detail)).ConfigureAwait(false);
+    }
+
+    private async Task GenerateDiagnosticsReportAsync()
+    {
+        var study = ResolveDiagnosticsStudyDefinition();
+        if (study is null)
+        {
+            await ApplyOutcomeAsync(
+                "Generate Diagnostics Report",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Diagnostics report generation is blocked.",
+                    "The public diagnostics catalog did not expose the projected-feed Colorama scene definition needed to build the report.")).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() =>
+        {
+            DiagnosticsReportLevel = OperationOutcomeKind.Preview;
+            DiagnosticsReportSummary = "Generating DOPE diagnostics report...";
+            DiagnosticsReportDetail = "Collecting Windows analysis, Quest setup, Wi-Fi transport, quest_twin_state return-path, and command-acceptance evidence.";
+            DiagnosticsReportTimestampLabel = $"Started {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+        }).ConfigureAwait(false);
+
+        DopeDiagnosticsReportResult result;
+        OperationOutcome pdfOutcome;
+        try
+        {
+            if (_latestHeadsetStatus?.IsConnected != true)
+            {
+                await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+            }
+
+            var reportService = new DopeDiagnosticsReportService(
+                _questService,
+                _windowsEnvironmentAnalysisService,
+                _lslStreamDiscoveryService,
+                _testLslSignalService,
+                _twinBridge);
+            result = await reportService
+                .GenerateAsync(
+                    new DopeDiagnosticsReportRequest(
+                        study,
+                        DeviceSelector: ResolveHeadsetActionSelector(),
+                        ProbeWaitDuration: TimeSpan.FromSeconds(12)))
+                .ConfigureAwait(false);
+            pdfOutcome = await GenerateDiagnosticsReportPdfAsync(result.JsonPath, result.PdfPath).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() =>
+            {
+                DiagnosticsReportLevel = OperationOutcomeKind.Failure;
+                DiagnosticsReportSummary = "DOPE diagnostics report failed.";
+                DiagnosticsReportDetail = exception.Message;
+                DiagnosticsReportTimestampLabel = $"Failed {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                "Generate Diagnostics Report",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "DOPE diagnostics report failed.",
+                    exception.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        var displayLevel = result.Level == OperationOutcomeKind.Success && pdfOutcome.Kind == OperationOutcomeKind.Warning
+            ? OperationOutcomeKind.Warning
+            : result.Level;
+        var pdfDetail = pdfOutcome.Kind == OperationOutcomeKind.Success
+            ? $"PDF ready: {NormalizeHostVisibleOperatorPath(result.PdfPath)}"
+            : $"PDF issue: {pdfOutcome.Summary} {pdfOutcome.Detail}".Trim();
+
+        await DispatchAsync(() =>
+        {
+            ApplyWindowsEnvironmentAnalysisResult(result.Report.WindowsEnvironment);
+            ApplyWifiRouterDiagnosticsResult(result.Report.QuestWifiTransport);
+            DiagnosticsReportLevel = displayLevel;
+            DiagnosticsReportSummary = result.Summary;
+            DiagnosticsReportDetail = $"{result.Detail} {pdfDetail} Folder: {NormalizeHostVisibleOperatorPath(result.ReportDirectory)}";
+            DiagnosticsReportTimestampLabel = $"Generated {result.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+            DiagnosticsReportFolderPath = result.ReportDirectory;
+            DiagnosticsReportPdfPath = result.PdfPath;
+        }).ConfigureAwait(false);
+
+        await ApplyOutcomeAsync(
+            "Generate Diagnostics Report",
+            new OperationOutcome(
+                displayLevel,
+                result.Summary,
+                DiagnosticsReportDetail,
+                Items: [result.PdfPath, result.TexPath, result.JsonPath, result.ReportDirectory])).ConfigureAwait(false);
+    }
+
+    private WindowsEnvironmentAnalysisRequest BuildWindowsEnvironmentAnalysisRequest()
+    {
+        var diagnosticsStudy = ResolveDiagnosticsStudyDefinition();
+        var expectedStreamName = string.IsNullOrWhiteSpace(diagnosticsStudy?.Monitoring.ExpectedLslStreamName)
+            ? HrvBiofeedbackStreamContract.StreamName
+            : diagnosticsStudy.Monitoring.ExpectedLslStreamName;
+        var expectedStreamType = string.IsNullOrWhiteSpace(diagnosticsStudy?.Monitoring.ExpectedLslStreamType)
+            ? HrvBiofeedbackStreamContract.StreamType
+            : diagnosticsStudy.Monitoring.ExpectedLslStreamType;
+
+        return new WindowsEnvironmentAnalysisRequest(
+            expectedStreamName,
+            expectedStreamType,
+            QuestWifiTransport: _latestHeadsetStatus?.IsConnected == true
+                ? new QuestWifiTransportDiagnosticsContext(_latestHeadsetStatus, ResolveHeadsetActionSelector())
+                : null);
+    }
+
+    private void ApplyWindowsEnvironmentAnalysisResult(WindowsEnvironmentAnalysisResult result)
+    {
+        WindowsEnvironmentAnalysisLevel = result.Level;
+        WindowsEnvironmentAnalysisSummary = result.Summary;
+        WindowsEnvironmentAnalysisDetail = BuildWindowsEnvironmentSummaryDetail(result);
+        WindowsEnvironmentAnalysisTimestampLabel = $"Last analyzed {result.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+        ReplaceWorkflowGuideCheckItems(
+            WindowsEnvironmentChecks,
+            result.Checks
+                .Select(check => new WorkflowGuideCheckItem(check.Label, check.Summary, check.Detail, check.Level))
+                .ToArray());
+    }
+
+    private static string BuildWindowsEnvironmentSummaryDetail(WindowsEnvironmentAnalysisResult result)
+    {
+        var attentionItems = result.Checks
+            .Where(check => check.Level is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
+            .Select(check => $"{check.Label}: {check.Summary}")
+            .ToArray();
+
+        return attentionItems.Length == 0
+            ? $"{result.Detail} All Windows-side prerequisites and the current Quest Wi-Fi transport path that the public app can verify are present."
+            : $"{result.Detail} {string.Join(" ", attentionItems)}";
+    }
+
+    private static string BuildWindowsEnvironmentActionDetail(WindowsEnvironmentAnalysisResult result)
+        => string.Join(
+            Environment.NewLine,
+            new[] { result.Detail }
+                .Concat(result.Checks.Select(check => $"{check.Label}: {check.Summary}")));
+
+    private void ApplyWifiRouterDiagnosticsResult(QuestWifiTransportDiagnosticsResult result)
+    {
+        WifiRouterDiagnosticsLevel = result.Level;
+        WifiRouterDiagnosticsSummary = result.Summary;
+        WifiRouterDiagnosticsDetail = result.Detail;
+        WifiRouterDiagnosticsTimestampLabel = $"Last checked {result.CheckedAtUtc.ToLocalTime():HH:mm:ss}.";
+    }
+
+    private void ApplyDeviceProfileDiagnosticsResult(DeviceProfileStatus status)
+    {
+        DeviceProfileDiagnosticsLevel = status.IsActive ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
+        DeviceProfileDiagnosticsSummary = status.Summary;
+        DeviceProfileDiagnosticsDetail = status.Detail;
+        DeviceProfileDiagnosticsTimestampLabel = $"Last checked {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+        ReplaceStudyStatusRows(
+            DeviceProfileDiagnosticsRows,
+            status.Properties.Select(property => new StudyStatusRowViewModel(
+                new StudyStatusRow(
+                    Label: FormatDeviceProfilePropertyLabel(property.Key),
+                    Key: property.Key,
+                    Value: string.IsNullOrWhiteSpace(property.ReportedValue) ? "Not reported" : property.ReportedValue,
+                    Expected: property.ExpectedValue,
+                    Detail: BuildDeviceProfilePropertyDetail(property),
+                    Level: property.Matches ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)))
+            .ToArray());
+    }
+
+    private async Task OpenDiagnosticsReportFolderAsync()
+    {
+        await OpenOperatorPathAsync(
+            DiagnosticsReportFolderPath,
+            isDirectory: true,
+            actionLabel: "Open Diagnostics Report Folder",
+            unavailableSummary: "Diagnostics report folder is not available yet.",
+            unavailableDetail: "Generate the diagnostics report first so the JSON, LaTeX, and PDF artifacts exist.").ConfigureAwait(false);
+    }
+
+    private async Task OpenDiagnosticsReportPdfAsync()
+    {
+        await OpenOperatorPathAsync(
+            DiagnosticsReportPdfPath,
+            isDirectory: false,
+            actionLabel: "Open Diagnostics Report PDF",
+            unavailableSummary: "Diagnostics report PDF is not available yet.",
+            unavailableDetail: "Generate the diagnostics report first so the shareable PDF exists.").ConfigureAwait(false);
+    }
+
+    private async Task OpenLocalAgentWorkspaceAsync()
+    {
+        LocalAgentWorkspaceSnapshot snapshot;
+        try
+        {
+            snapshot = await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                "Open Local Agent Workspace",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Local agent workspace could not be prepared.",
+                    ex.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = snapshot.RootPath,
+                UseShellExecute = true
+            });
+
+            await ApplyOutcomeAsync(
+                "Open Local Agent Workspace",
+                new OperationOutcome(
+                    snapshot.HasBundledCli ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+                    snapshot.HasBundledCli
+                        ? "Local agent workspace ready."
+                        : "Local agent workspace opened, but the bundled CLI mirror is missing.",
+                    snapshot.HasBundledCli
+                        ? $"Open your local agent in {snapshot.RootPath}. This workspace mirrors the bundled CLI, CLI docs, and public DOPE sample catalogs outside WindowsApps."
+                        : $"Open your local agent in {snapshot.RootPath}. The mirrored docs and sample catalogs are ready, but the bundled CLI payload was not mirrored on this machine.",
+                    Items: [snapshot.RootPath])).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                "Open Local Agent Workspace",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Local agent workspace could not be opened.",
+                    ex.Message,
+                    Items: [snapshot.RootPath])).ConfigureAwait(false);
+        }
     }
 
     private async Task RestartMonitorAsync()
@@ -2389,6 +2973,298 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             summaryTarget?.Invoke(outcome.Summary);
             AppendLog(MapLevel(outcome.Kind), outcome.Summary, outcome.Detail);
         }).ConfigureAwait(false);
+    }
+
+    private StudyShellDefinition? ResolveDiagnosticsStudyDefinition()
+    {
+        if (StudyShells.Count == 0)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(SelectedApp?.PackageId))
+        {
+            var selectedAppMatch = StudyShells.FirstOrDefault(
+                study => string.Equals(study.App.PackageId, SelectedApp.PackageId, StringComparison.OrdinalIgnoreCase));
+            if (selectedAppMatch is not null)
+            {
+                return selectedAppMatch;
+            }
+        }
+
+        return StudyShells.FirstOrDefault(study => string.Equals(study.Id, "dope-projected-feed-colorama", StringComparison.OrdinalIgnoreCase))
+            ?? StudyShells.FirstOrDefault(study => string.Equals(study.App.PackageId, "com.tillh.dynamicoscillatorypatternentrainment", StringComparison.OrdinalIgnoreCase))
+            ?? StudyShells[0];
+    }
+
+    private DeviceProfile? ResolveDiagnosticsDeviceProfile()
+        => SelectedDeviceProfile ?? (ResolveDiagnosticsStudyDefinition() is { } study ? StudyShellOperatorBindings.CreateDeviceProfile(study) : null);
+
+    private string ResolveHeadsetActionSelector()
+    {
+        foreach (var candidate in new[]
+                 {
+                     _latestHeadsetStatus?.IsConnected == true ? _latestHeadsetStatus.ConnectionLabel : null,
+                     string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim(),
+                     _sessionState.ActiveEndpoint
+                 })
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string FormatDeviceProfilePropertyLabel(string key)
+        => key switch
+        {
+            "debug.oculus.cpuLevel" => "CPU level",
+            "debug.oculus.gpuLevel" => "GPU level",
+            "dope.screen_brightness_percent" => "Screen brightness (%)",
+            "dope.media_volume_music" => "Media volume",
+            "dope.minimum_headset_battery_percent" => "Minimum headset battery (%)",
+            "dope.minimum_right_controller_battery_percent" => "Minimum right controller battery (%)",
+            _ => key
+        };
+
+    private static string BuildDeviceProfilePropertyDetail(DevicePropertyStatus property)
+        => property.Key switch
+        {
+            "dope.media_volume_music" when property.Matches
+                => "Pinned Quest media volume matches.",
+            "dope.media_volume_music"
+                => "Pinned Quest media volume differs from the current headset value. If Apply Device Profile does not fix it, set volume manually on the headset and refresh.",
+            _ => property.Matches
+                ? "Pinned Quest property matches."
+                : "Pinned Quest property differs from the current headset value."
+        };
+
+    private static string NormalizeHostVisibleOperatorPath(string? path)
+        => CompanionOperatorDataLayout.NormalizeHostVisiblePath(path);
+
+    private async Task OpenOperatorPathAsync(
+        string path,
+        bool isDirectory,
+        string actionLabel,
+        string unavailableSummary,
+        string unavailableDetail)
+    {
+        var resolvedPath = isDirectory
+            ? CompanionOperatorDataLayout.TryResolveExistingDirectory(path, out var directoryPath) ? directoryPath : null
+            : CompanionOperatorDataLayout.TryResolveExistingFile(path, out var filePath) ? filePath : null;
+
+        if (string.IsNullOrWhiteSpace(resolvedPath))
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    unavailableSummary,
+                    unavailableDetail,
+                    Items: string.IsNullOrWhiteSpace(path) ? [] : [NormalizeHostVisibleOperatorPath(path)])).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = resolvedPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    $"{actionLabel} failed.",
+                    ex.Message,
+                    Items: [resolvedPath])).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<OperationOutcome> GenerateDiagnosticsReportPdfAsync(string jsonPath, string outputPdfPath)
+    {
+        if (string.IsNullOrWhiteSpace(jsonPath) || !File.Exists(jsonPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Diagnostics PDF skipped.",
+                "The diagnostics JSON report was not written.");
+        }
+
+        var scriptPath = TryResolveDiagnosticsPdfScriptPath();
+        if (string.IsNullOrWhiteSpace(scriptPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Diagnostics PDF generator was not found.",
+                "The JSON and LaTeX diagnostics reports were written, but the bundled PDF script could not be resolved.");
+        }
+
+        foreach (var (fileName, prefixArgs) in new[]
+                 {
+                     ("py", new[] { "-3", scriptPath }),
+                     ("python", new[] { scriptPath })
+                 })
+        {
+            try
+            {
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = fileName,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    }
+                };
+
+                foreach (var arg in prefixArgs)
+                {
+                    process.StartInfo.ArgumentList.Add(arg);
+                }
+
+                process.StartInfo.ArgumentList.Add("--input-json");
+                process.StartInfo.ArgumentList.Add(jsonPath);
+                process.StartInfo.ArgumentList.Add("--output-pdf");
+                process.StartInfo.ArgumentList.Add(outputPdfPath);
+
+                process.Start();
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+                var completed = await Task.Run(() => process.WaitForExit((int)TimeSpan.FromSeconds(45).TotalMilliseconds)).ConfigureAwait(false);
+                if (!completed)
+                {
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch
+                    {
+                    }
+
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Diagnostics PDF generation timed out.",
+                        "The JSON and LaTeX diagnostics reports were written; open the report folder to share those files.");
+                }
+
+                var stdout = await stdoutTask.ConfigureAwait(false);
+                var stderr = await stderrTask.ConfigureAwait(false);
+                if (process.ExitCode == 0 && File.Exists(outputPdfPath))
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Success,
+                        "Diagnostics PDF generated.",
+                        string.IsNullOrWhiteSpace(stdout) ? outputPdfPath : stdout.Trim(),
+                        Items: [outputPdfPath]);
+                }
+
+                if (fileName == "python")
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Diagnostics PDF generation failed.",
+                        string.Join(Environment.NewLine, new[] { stdout, stderr }.Where(text => !string.IsNullOrWhiteSpace(text))).Trim());
+                }
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
+            {
+                if (fileName == "python")
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Python was not available for diagnostics PDF generation.",
+                        "The JSON and LaTeX diagnostics reports were written. Install Python with matplotlib to generate the PDF locally.");
+                }
+            }
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            "Diagnostics PDF was not generated.",
+            "The JSON and LaTeX diagnostics reports were written, but no Python runtime completed the bundled PDF script.");
+    }
+
+    private static string? TryResolveDiagnosticsPdfScriptPath()
+        => new[]
+        {
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tools", "reports", "generate_dope_diagnostics_pdf.py")),
+            Path.Combine(AppContext.BaseDirectory, "tools", "reports", "generate_dope_diagnostics_pdf.py"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "DopeCompanion",
+                "tools",
+                "reports",
+                "generate_dope_diagnostics_pdf.py")
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        .Select(Path.GetFullPath)
+        .FirstOrDefault();
+
+    private static void ReplaceWorkflowGuideCheckItems(
+        ObservableCollection<WorkflowGuideCheckItem> target,
+        IReadOnlyList<WorkflowGuideCheckItem> source)
+    {
+        var canUpdateInPlace = target.Count == source.Count
+            && target.Zip(source, (existing, incoming) => string.Equals(existing.Label, incoming.Label, StringComparison.Ordinal))
+                .All(matches => matches);
+
+        if (!canUpdateInPlace)
+        {
+            ReplaceItems(target, source);
+            return;
+        }
+
+        for (var index = 0; index < source.Count; index++)
+        {
+            target[index].UpdateFrom(source[index]);
+        }
+    }
+
+    private static void ReplaceStudyStatusRows(
+        ObservableCollection<StudyStatusRowViewModel> target,
+        IReadOnlyList<StudyStatusRowViewModel> source)
+    {
+        var canUpdateInPlace = target.Count == source.Count
+            && target.Zip(source, (existing, incoming) => string.Equals(existing.Key, incoming.Key, StringComparison.Ordinal))
+                .All(matches => matches);
+
+        if (!canUpdateInPlace)
+        {
+            ReplaceItems(target, source);
+            return;
+        }
+
+        for (var index = 0; index < source.Count; index++)
+        {
+            target[index].Apply(new StudyStatusRow(
+                source[index].Label,
+                source[index].Key,
+                source[index].Value,
+                source[index].Expected,
+                source[index].Detail,
+                source[index].Level));
+        }
+    }
+
+    private static void ReplaceItems<T>(ObservableCollection<T> target, IReadOnlyList<T> source)
+    {
+        target.Clear();
+        foreach (var item in source)
+        {
+            target.Add(item);
+        }
     }
 
     private void RefreshTwinBridgeStatus(IReadOnlyList<TwinSettingsDelta> deltas)
