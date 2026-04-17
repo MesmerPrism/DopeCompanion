@@ -10,6 +10,7 @@ param(
     [string]$RuntimeIdentifier = 'win-x64',
     [string]$OutputRelativePath = 'artifacts\publish\DopeCompanion.App',
     [switch]$Refresh,
+    [switch]$SkipInstalledPackage,
     [switch]$SkipLauncherRefresh,
     [switch]$Wait
 )
@@ -143,7 +144,7 @@ $publishScript = Join-Path $PSScriptRoot 'Publish-Desktop-App.ps1'
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
 $exePath = Join-Path $outputPath 'DopeCompanion.exe'
 $shouldRefreshLaunchers = -not $SkipLauncherRefresh -and -not (Test-InstalledPackagePresent)
-$installedPackage = Get-InstalledPackageRegistration
+$installedPackage = if ($SkipInstalledPackage) { $null } else { Get-InstalledPackageRegistration }
 
 if (-not (Test-Path $publishScript)) {
     throw "Publish script not found at $publishScript"

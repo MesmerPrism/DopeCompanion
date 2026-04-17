@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $launcherScriptPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.ps1'
 $launcherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.vbs'
-$iconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\dope-companion.ico'
+$iconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Published\dope-companion.ico'
 $scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
 
 if (-not (Test-Path $launcherScriptPath)) {

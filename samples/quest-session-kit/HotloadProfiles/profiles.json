@@ -13,6 +13,24 @@
       "description": "Public baseline for the projected-feed multi-layer Colorama quad scene. Mirrors the authored scene defaults from Dynamic Oscillatory Pattern Entrainment for the current bundled APK."
     },
     {
+      "id": "dope_projected_feed_colorama_soft_gradient",
+      "label": "DOPE Projected Feed Colorama Soft Blur",
+      "file": "dope-projected-feed-colorama-soft-gradient.csv",
+      "version": "2026.04.17",
+      "channel": "public",
+      "studyLock": false,
+      "description": "Low-radius blur and gentle brightness-gradient distortion mapping for the multi-layer Colorama scene when you want calmer movement and clearer underlying structure."
+    },
+    {
+      "id": "dope_projected_feed_colorama_balanced_gradient",
+      "label": "DOPE Projected Feed Colorama Balanced Blur",
+      "file": "dope-projected-feed-colorama-balanced-gradient.csv",
+      "version": "2026.04.17",
+      "channel": "public",
+      "studyLock": false,
+      "description": "Balanced blur radius and moderate brightness-gradient distortion mapping for the multi-layer Colorama scene. Intended as the neutral operator tuning point between baseline and stronger warp variants."
+    },
+    {
       "id": "dope_projected_feed_colorama_quality",
       "label": "DOPE Projected Feed Colorama Quality",
       "file": "dope-projected-feed-colorama-quality.csv",
@@ -20,6 +38,15 @@
       "channel": "public",
       "studyLock": false,
       "description": "Higher-intensity projected-feed Colorama variant with slightly wider overlay coverage and stronger gradient/displacement motion for supervised scene iteration."
+    },
+    {
+      "id": "dope_projected_feed_colorama_strong_gradient",
+      "label": "DOPE Projected Feed Colorama Strong Gradient Warp",
+      "file": "dope-projected-feed-colorama-strong-gradient.csv",
+      "version": "2026.04.17",
+      "channel": "public",
+      "studyLock": false,
+      "description": "Large blur radius and strong brightness-gradient distortion mapping for the multi-layer Colorama scene when you want the overlay warp to read clearly and aggressively."
     }
   ]
 }

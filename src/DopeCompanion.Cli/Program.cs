@@ -492,7 +492,7 @@ public static class Program
         var installCommand = new Command("install", "Install the pinned study APK") { studyArg, rootOption };
         installCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
-            var definition = await ResolveStudyShellAsync(study, root);
+            var definition = await ResolveStudyDefinitionAsync(study, root, allowPublicQuestSessionKitFallback: true);
             var service = CreateQuestService(device);
             var result = await service.InstallAppAsync(StudyShellOperatorBindings.CreateQuestTarget(definition));
             PrintOutcome(result);
@@ -501,7 +501,7 @@ public static class Program
         var profileCommand = new Command("apply-profile", "Apply the pinned study device profile") { studyArg, rootOption };
         profileCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
-            var definition = await ResolveStudyShellAsync(study, root);
+            var definition = await ResolveStudyDefinitionAsync(study, root, allowPublicQuestSessionKitFallback: true);
             var service = CreateQuestService(device);
             var result = await service.ApplyDeviceProfileAsync(StudyShellOperatorBindings.CreateDeviceProfile(definition));
             PrintOutcome(result);
@@ -510,7 +510,7 @@ public static class Program
         var launchCommand = new Command("launch", "Launch the pinned study runtime using the study kiosk policy. Wake the headset first; the launcher now blocks while the headset reports asleep.") { studyArg, rootOption };
         launchCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
-            var definition = await ResolveStudyShellAsync(study, root);
+            var definition = await ResolveStudyDefinitionAsync(study, root, allowPublicQuestSessionKitFallback: true);
             var service = CreateQuestService(device);
             var startupSync = await DopeCliSupport.SyncPinnedStartupProfilesAsync(
                 definition,
@@ -535,7 +535,7 @@ public static class Program
         var stopCommand = new Command("stop", "Stop the pinned study runtime using the study kiosk-exit policy") { studyArg, rootOption };
         stopCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
-            var definition = await ResolveStudyShellAsync(study, root);
+            var definition = await ResolveStudyDefinitionAsync(study, root, allowPublicQuestSessionKitFallback: true);
             var service = CreateQuestService(device);
             var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
             var result = await service.StopAppAsync(target, exitKioskMode: definition.App.LaunchInKioskMode);
@@ -562,7 +562,7 @@ public static class Program
         var statusCommand = new Command("status", "Show current headset state against the pinned study verification baseline") { studyArg, rootOption };
         statusCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
-            var definition = await ResolveStudyShellAsync(study, root);
+            var definition = await ResolveStudyDefinitionAsync(study, root, allowPublicQuestSessionKitFallback: true);
             var service = CreateQuestService(device);
             var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
             var profile = StudyShellOperatorBindings.CreateDeviceProfile(definition);
@@ -617,7 +617,7 @@ public static class Program
         var probeConnectionCommand = new Command("probe-connection", "Probe the Dope LSL inlet and quest_twin_state return path, mirroring the Step 9 guide check") { studyArg, rootOption, probeJsonOption, probeWaitOption };
         probeConnectionCommand.Handler = CommandHandler.Create(async (string study, string? root, bool json, int waitSeconds, string? device) =>
         {
-            var definition = await ResolveStudyShellAsync(study, root);
+            var definition = await ResolveStudyDefinitionAsync(study, root, allowPublicQuestSessionKitFallback: true);
             var service = CreateQuestService(device);
             var waitDuration = TimeSpan.FromSeconds(Math.Max(0, waitSeconds));
             var result = await DiagnosticsCliSupport.ProbeStudyConnectionAsync(definition, service, device, waitDuration).ConfigureAwait(false);
@@ -656,7 +656,8 @@ public static class Program
             bool noPdf,
             string? device) =>
         {
-            var definition = await ResolveStudyShellAsync(study, root);
+            var diagnosticsContext = await ResolveDiagnosticsStudyContextAsync(study, root);
+            var definition = diagnosticsContext.Study;
             var questService = CreateQuestService(device);
             using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
             using var testSender = TestLslSignalServiceFactory.CreateDefault();
@@ -682,7 +683,8 @@ public static class Program
                             DeviceSelector: device,
                             OutputDirectory: outputDir,
                             ProbeWaitDuration: TimeSpan.FromSeconds(Math.Max(0, waitSeconds)),
-                            RunCommandAcceptanceCheck: !skipCommandCheck))
+                            RunCommandAcceptanceCheck: !skipCommandCheck,
+                            IncludeLslTwinChecks: diagnosticsContext.IncludeLslTwinChecks))
                     .ConfigureAwait(false);
 
                 OperationOutcome? pdfOutcome = null;
@@ -1730,6 +1732,65 @@ public static class Program
         return catalog.Studies.FirstOrDefault(study =>
                    string.Equals(study.Id, studyId, StringComparison.OrdinalIgnoreCase))
                ?? throw new InvalidOperationException($"Study shell '{studyId}' was not found in {catalog.Source.RootPath}.");
+    }
+
+    private sealed record StudyResolution(StudyShellDefinition Study, bool IsPublicQuestSessionKitFallback);
+    private sealed record DiagnosticsStudyContext(StudyShellDefinition Study, bool IncludeLslTwinChecks);
+
+    private static async Task<StudyResolution> ResolveStudyDefinitionResolutionAsync(
+        string studyId,
+        string? root,
+        bool allowPublicQuestSessionKitFallback)
+    {
+        try
+        {
+            return new StudyResolution(await ResolveStudyShellAsync(studyId, root), IsPublicQuestSessionKitFallback: false);
+        }
+        catch (Exception ex) when (
+            allowPublicQuestSessionKitFallback &&
+            PublicQuestSessionKitStudyFactory.MatchesStudyToken(studyId) &&
+            ex is InvalidOperationException or FileNotFoundException or DirectoryNotFoundException or InvalidDataException)
+        {
+            var catalog = await LoadQuestSessionKitCatalogForDiagnosticsAsync(root);
+            return new StudyResolution(
+                PublicQuestSessionKitStudyFactory.CreateFromCatalog(catalog, studyId),
+                IsPublicQuestSessionKitFallback: true);
+        }
+    }
+
+    private static async Task<StudyShellDefinition> ResolveStudyDefinitionAsync(
+        string studyId,
+        string? root,
+        bool allowPublicQuestSessionKitFallback)
+        => (await ResolveStudyDefinitionResolutionAsync(studyId, root, allowPublicQuestSessionKitFallback)).Study;
+
+    private static async Task<DiagnosticsStudyContext> ResolveDiagnosticsStudyContextAsync(string studyId, string? root)
+    {
+        var resolution = await ResolveStudyDefinitionResolutionAsync(studyId, root, allowPublicQuestSessionKitFallback: true);
+        return new DiagnosticsStudyContext(resolution.Study, IncludeLslTwinChecks: !resolution.IsPublicQuestSessionKitFallback);
+    }
+
+    private static async Task<QuestSessionKitCatalog> LoadQuestSessionKitCatalogForDiagnosticsAsync(string? root)
+    {
+        var loader = new QuestSessionKitCatalogLoader();
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            var normalizedRoot = Path.GetFullPath(root);
+            if (Directory.Exists(Path.Combine(normalizedRoot, "APKs")))
+            {
+                candidates.Add(normalizedRoot);
+            }
+
+            var nestedQuestSessionKit = Path.Combine(normalizedRoot, "quest-session-kit");
+            if (Directory.Exists(Path.Combine(nestedQuestSessionKit, "APKs")))
+            {
+                candidates.Add(nestedQuestSessionKit);
+            }
+        }
+
+        candidates.Add(CliAssetLocator.ResolveQuestSessionKitRoot());
+        return await loader.LoadMultipleAsync(candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
     private static void PrintOutcome(OperationOutcome outcome)

@@ -19,6 +19,7 @@ The current public control lanes are:
 - Quest device-profile application
 - app launch
 - staged runtime-config editing for the projected-feed Colorama scene
+- staged hotload profile upload for the projected-feed Colorama scene
 
 The app keeps the same future-facing twin transport contract as the sibling
 operator repo:
@@ -28,5 +29,6 @@ operator repo:
 - `quest_hotload_config`
 
 Treat that as the intended contract, not as proof that the current DOPE build
-is already publishing every lane. The public companion can be ready before the
-Unity-side DOPE bridge is fully wired.
+is already publishing every lane. The current public baseline is: bundled
+install/launch plus staged hotload profile upload into the live APK, with
+startup diagnostics readback after launch.

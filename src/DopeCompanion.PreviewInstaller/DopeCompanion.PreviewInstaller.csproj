@@ -8,11 +8,13 @@
     <RootNamespace>DopeCompanion.PreviewInstaller</RootNamespace>
     <AssemblyName>DopeCompanion.PreviewInstaller</AssemblyName>
     <Description>Guided bootstrapper for installing the DOPE Companion research preview on Windows.</Description>
-    <ApplicationIcon>..\DopeCompanion.App\Assets\dope-companion.ico</ApplicationIcon>
+    <DopeCompanionBrand Condition="'$(DopeCompanionBrand)' == ''">Preview</DopeCompanionBrand>
+    <BrandingAssetRoot>..\DopeCompanion.App\Assets\Branding\$(DopeCompanionBrand)</BrandingAssetRoot>
+    <ApplicationIcon>$(BrandingAssetRoot)\dope-companion.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\DopeCompanion.App\Assets\dope-companion.png" Link="Assets\dope-companion.png" />
+    <EmbeddedResource Include="$(BrandingAssetRoot)\dope-companion.png" Link="Assets\dope-companion.png" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\DopeCompanion.Core\DopeCompanion.Core.csproj" />

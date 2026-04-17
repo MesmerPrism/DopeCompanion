@@ -62,6 +62,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool _startupStudyAutoOpened;
     private StudyShellViewModel? _activeStudyShell;
     private bool _isStudyBannerExpanded = true;
+    private bool _isStandardHeaderExpanded;
     private string _endpointDraft = string.Empty;
     private string _browserUrlDraft = "https://mesmerprism.com/DopeCompanion/";
     private string _connectionSummary = "No Quest endpoint action has run yet.";
@@ -203,6 +204,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OpenStudyShellCommand = new AsyncRelayCommand(OpenStudyShellAsync);
         ExitStudyModeCommand = new AsyncRelayCommand(ExitStudyModeAsync);
         ToggleStudyBannerCommand = new AsyncRelayCommand(ToggleStudyBannerAsync);
+        ToggleStandardHeaderCommand = new AsyncRelayCommand(ToggleStandardHeaderAsync);
         ProbeUsbCommand = new AsyncRelayCommand(ProbeUsbAsync);
         DiscoverWifiCommand = new AsyncRelayCommand(DiscoverWifiAsync);
         EnableWifiCommand = new AsyncRelayCommand(EnableWifiAsync);
@@ -310,6 +312,23 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string StudyBannerToggleLabel => IsStudyBannerExpanded ? "Collapse Banner" : "Expand Banner";
 
+    public bool IsStandardHeaderExpanded
+    {
+        get => _isStandardHeaderExpanded;
+        set
+        {
+            if (SetProperty(ref _isStandardHeaderExpanded, value))
+            {
+                OnPropertyChanged(nameof(ShowExpandedStandardHeader));
+                OnPropertyChanged(nameof(StandardHeaderToggleLabel));
+            }
+        }
+    }
+
+    public bool ShowExpandedStandardHeader => ShowStandardOperatorSurface && IsStandardHeaderExpanded;
+
+    public string StandardHeaderToggleLabel => IsStandardHeaderExpanded ? "Hide Details" : "Show Details";
+
     public string FeaturedStudyShellLabel
         => FeaturedStudyShell?.Label ?? "No pinned scene workspace is available.";
 
@@ -378,6 +397,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ExitStudyModeCommand { get; }
 
     public AsyncRelayCommand ToggleStudyBannerCommand { get; }
+
+    public AsyncRelayCommand ToggleStandardHeaderCommand { get; }
 
     public AsyncRelayCommand ProbeUsbCommand { get; }
 
@@ -1658,6 +1679,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         return Task.CompletedTask;
     }
 
+    private Task ToggleStandardHeaderAsync()
+    {
+        IsStandardHeaderExpanded = !IsStandardHeaderExpanded;
+        return Task.CompletedTask;
+    }
+
     private void PinStudyShellSelection(StudyShellDefinition study)
     {
         var matchingApp = Apps.FirstOrDefault(app => string.Equals(app.PackageId, study.App.PackageId, StringComparison.OrdinalIgnoreCase));
@@ -2275,7 +2302,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private async Task GenerateDiagnosticsReportAsync()
     {
-        var study = ResolveDiagnosticsStudyDefinition();
+        var (study, includeLslTwinChecks) = ResolveDiagnosticsStudyContext();
         if (study is null)
         {
             await ApplyOutcomeAsync(
@@ -2315,7 +2342,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     new DopeDiagnosticsReportRequest(
                         study,
                         DeviceSelector: ResolveHeadsetActionSelector(),
-                        ProbeWaitDuration: TimeSpan.FromSeconds(12)))
+                        ProbeWaitDuration: TimeSpan.FromSeconds(12),
+                        IncludeLslTwinChecks: includeLslTwinChecks))
                 .ConfigureAwait(false);
             pdfOutcome = await GenerateDiagnosticsReportPdfAsync(result.JsonPath, result.PdfPath).ConfigureAwait(false);
         }
@@ -2368,7 +2396,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private WindowsEnvironmentAnalysisRequest BuildWindowsEnvironmentAnalysisRequest()
     {
-        var diagnosticsStudy = ResolveDiagnosticsStudyDefinition();
+        var (diagnosticsStudy, includeLslTwinChecks) = ResolveDiagnosticsStudyContext();
         var expectedStreamName = string.IsNullOrWhiteSpace(diagnosticsStudy?.Monitoring.ExpectedLslStreamName)
             ? HrvBiofeedbackStreamContract.StreamName
             : diagnosticsStudy.Monitoring.ExpectedLslStreamName;
@@ -2379,6 +2407,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         return new WindowsEnvironmentAnalysisRequest(
             expectedStreamName,
             expectedStreamType,
+            ProbeExpectedLslStream: includeLslTwinChecks,
             QuestWifiTransport: _latestHeadsetStatus?.IsConnected == true
                 ? new QuestWifiTransportDiagnosticsContext(_latestHeadsetStatus, ResolveHeadsetActionSelector())
                 : null);
@@ -2979,7 +3008,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         if (StudyShells.Count == 0)
         {
-            return null;
+            if (SelectedApp is null)
+            {
+                return null;
+            }
+
+            return PublicQuestSessionKitStudyFactory.Create(
+                WithResolvedApkPath(SelectedApp),
+                ResolveFallbackDiagnosticsDeviceProfile(),
+                ResolveApkPathForTarget(SelectedApp));
         }
 
         if (!string.IsNullOrWhiteSpace(SelectedApp?.PackageId))
@@ -2996,6 +3033,25 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             ?? StudyShells.FirstOrDefault(study => string.Equals(study.App.PackageId, "com.tillh.dynamicoscillatorypatternentrainment", StringComparison.OrdinalIgnoreCase))
             ?? StudyShells[0];
     }
+
+    private (StudyShellDefinition? Study, bool IncludeLslTwinChecks) ResolveDiagnosticsStudyContext()
+    {
+        var study = ResolveDiagnosticsStudyDefinition();
+        if (study is null)
+        {
+            return (null, false);
+        }
+
+        var includeLslTwinChecks = StudyShells.Any(candidate =>
+            string.Equals(candidate.Id, study.Id, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(candidate.App.PackageId, study.App.PackageId, StringComparison.OrdinalIgnoreCase));
+        return (study, includeLslTwinChecks);
+    }
+
+    private DeviceProfile? ResolveFallbackDiagnosticsDeviceProfile()
+        => SelectedDeviceProfile
+            ?? DeviceProfiles.FirstOrDefault(profile => string.Equals(profile.Id, "dope-projected-feed-balanced", StringComparison.OrdinalIgnoreCase))
+            ?? DeviceProfiles.FirstOrDefault();
 
     private DeviceProfile? ResolveDiagnosticsDeviceProfile()
         => SelectedDeviceProfile ?? (ResolveDiagnosticsStudyDefinition() is { } study ? StudyShellOperatorBindings.CreateDeviceProfile(study) : null);
@@ -3715,6 +3771,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CurrentModeDetail));
         OnPropertyChanged(nameof(ShowExpandedStudyBanner));
         OnPropertyChanged(nameof(StudyBannerToggleLabel));
+        OnPropertyChanged(nameof(ShowExpandedStandardHeader));
+        OnPropertyChanged(nameof(StandardHeaderToggleLabel));
         OnPropertyChanged(nameof(HeaderModeSummary));
         OnPropertyChanged(nameof(TargetSelectionHeadline));
         OnPropertyChanged(nameof(TargetSelectionDetail));

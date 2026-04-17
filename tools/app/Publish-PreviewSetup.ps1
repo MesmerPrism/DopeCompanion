@@ -80,6 +80,7 @@ $publishArgs = @(
     '/p:EnableCompressionInSingleFile=true',
     '/p:DebugType=None',
     '/p:DebugSymbols=false',
+    '/p:DopeCompanionBrand=Preview',
     "/p:Version=$Version",
     "/p:AssemblyVersion=$Version",
     "/p:FileVersion=$Version",

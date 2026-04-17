@@ -336,6 +336,19 @@ function Set-ManifestValue {
     $node.Value = $Value
 }
 
+function Resolve-DopeCompanionBrand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PackageId
+    )
+
+    if ($PackageId -match 'preview') {
+        return 'Preview'
+    }
+
+    return 'Published'
+}
+
 if (([string]::IsNullOrWhiteSpace($AppInstallerUri)) -xor ([string]::IsNullOrWhiteSpace($MainPackageUri))) {
     throw 'AppInstallerUri and MainPackageUri must either both be provided or both be omitted.'
 }
@@ -415,13 +428,18 @@ try {
     $namespaceManager = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
     $namespaceManager.AddNamespace('appx', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
     $namespaceManager.AddNamespace('uap', 'http://schemas.microsoft.com/appx/manifest/uap/windows10')
+    $brandVariant = Resolve-DopeCompanionBrand -PackageId $PackageId
+    $brandImageRoot = "Images\Branding\$brandVariant"
 
     Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Identity/@Name' -Value $PackageId -NamespaceManager $namespaceManager
     Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Identity/@Publisher' -Value $Publisher -NamespaceManager $namespaceManager
     Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Identity/@Version' -Value $Version -NamespaceManager $namespaceManager
     Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Properties/appx:DisplayName/text()' -Value $DisplayName -NamespaceManager $namespaceManager
     Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Properties/appx:PublisherDisplayName/text()' -Value $PublisherDisplayName -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Properties/appx:Logo/text()' -Value "$brandImageRoot\StoreLogo.png" -NamespaceManager $namespaceManager
     Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Applications/appx:Application/uap:VisualElements/@DisplayName' -Value $DisplayName -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Applications/appx:Application/uap:VisualElements/@Square150x150Logo' -Value "$brandImageRoot\Square150x150Logo.png" -NamespaceManager $namespaceManager
+    Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Applications/appx:Application/uap:VisualElements/@Square44x44Logo' -Value "$brandImageRoot\Square44x44Logo.png" -NamespaceManager $namespaceManager
     $manifest.Save($manifestPath)
 
     Write-Host "Restoring DopeCompanion.App for win-$Platform runtime packs..." -ForegroundColor Cyan
@@ -437,6 +455,7 @@ try {
         '/restore',
         "/p:Configuration=$Configuration",
         "/p:Platform=$Platform",
+        "/p:DopeCompanionBrand=$brandVariant",
         "/p:PackagingTargetPlatformVersion=$targetPlatformVersion",
         '/p:UapAppxPackageBuildMode=SideLoadOnly',
         '/p:AppxBundle=Never',
@@ -451,6 +470,7 @@ try {
     )
 
     Write-Host "Building MSIX package with $msbuildPath" -ForegroundColor Cyan
+    Write-Host "Using DopeCompanion brand variant $brandVariant" -ForegroundColor Cyan
     Write-Host "Using UAP target platform version $targetPlatformVersion" -ForegroundColor Cyan
     & $msbuildPath @msbuildArgs | Out-Host
     if ($LASTEXITCODE -ne 0) {

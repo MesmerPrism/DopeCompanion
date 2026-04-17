@@ -14,7 +14,9 @@
     <AssemblyName>DopeCompanion</AssemblyName>
     <Title>DOPE Companion</Title>
     <Product>DOPE Companion</Product>
-    <ApplicationIcon>Assets\dope-companion.ico</ApplicationIcon>
+    <DopeCompanionBrand Condition="'$(DopeCompanionBrand)' == ''">Published</DopeCompanionBrand>
+    <BrandingAssetRoot>Assets\Branding\$(DopeCompanionBrand)</BrandingAssetRoot>
+    <ApplicationIcon>$(BrandingAssetRoot)\dope-companion.ico</ApplicationIcon>
     <BundledCliProjectPath>$(MSBuildProjectDirectory)\..\DopeCompanion.Cli\DopeCompanion.Cli.csproj</BundledCliProjectPath>
   </PropertyGroup>
 
@@ -57,8 +59,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\dope-companion.ico" />
-    <Resource Include="Assets\dope-companion.png" />
+    <Resource Include="$(BrandingAssetRoot)\dope-companion.png"
+              Link="Assets\dope-companion.png" />
   </ItemGroup>
 
   <Target Name="PublishBundledCli"

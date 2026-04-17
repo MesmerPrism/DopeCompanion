@@ -24,11 +24,16 @@ nav_order: 80
 
 ## Runtime-config changes do not show up live
 
-The Windows-side config surface is ready first. The matching DOPE Unity runtime
-still needs the Astral-style `quest_hotload_config` and `quest_twin_state`
-bridge wiring before live config push/readback should be treated as complete.
+The current public multilayer APK consumes the staged runtime-hotload CSV from
+the companion bundle. If a bundled profile does not show up:
 
-Until that bridge lands in the DOPE runtime:
+- relaunch the app after pushing the profile so startup diagnostics re-read the
+  staged file
+- confirm the selected profile is one of the bundled projected-feed Colorama
+  profiles
+- confirm the app on Quest is the bundled public APK, not an older install
 
-- use the public profiles here as the contract and staging surface
-- do not over-claim live state mirroring
+The future `quest_hotload_config` / `quest_twin_state` transport remains a
+separate live bridge lane. Do not treat that lane as interchangeable with the
+staged CSV hotload path unless you have explicitly verified it in the installed
+APK.

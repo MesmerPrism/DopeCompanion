@@ -19,7 +19,7 @@ runtime mirror is:
 - mirrored APK:
   `samples/quest-session-kit/APKs/DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk`
 - current bundled SHA256:
-  `E94FD2C48DAC8A26E82285C37B3D7D2D47C8A16F50334C5C3F2AD93C9F4142F3`
+  `5819A09C66131B0597025DED63D00A3CA7ED4450DCF7ECAF98E460EC4F9B45C6`
 
 The public operator surface follows the same delivery posture proven in
 `DopeCompanion`:
@@ -35,13 +35,15 @@ Current status:
 
 - the Windows app scaffold is derived from the generic operator shell in
   `DopeCompanion`
-- the bundled session kit now targets the DOPE projected-feed Colorama APK
+- the bundled session kit now targets the verified hotload-capable DOPE
+  projected-feed Colorama APK
 - the runtime-config editor exposes a dedicated `Projected Feed Colorama`
   section with the multi-layer quad controls
-- the live `quest_twin_*` LSL path is scaffolded to match the
-  `AstralKarateDojo` twin contract, but the matching Unity-side bridge still
-  needs to be wired into the DOPE runtime before live publish/monitor claims
-  should be treated as complete
+- the bundled scene-profile CSV path is live in the Quest runtime and reports
+  the active hotload profile in startup diagnostics
+- the future `quest_twin_*` LSL lane still follows the
+  `AstralKarateDojo` transport contract, but that remains separate from the now
+  verified bundled CSV hotload path
 
 ## Scope
 

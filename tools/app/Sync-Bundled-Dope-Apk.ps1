@@ -32,7 +32,12 @@ function Get-Sha256Hex {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $defaultDopeRepoRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot '..\Dynamic Oscillatory Pattern Entrainment'))
 $resolvedSourceApkPath = if ([string]::IsNullOrWhiteSpace($SourceApkPath)) {
-    [System.IO.Path]::GetFullPath((Join-Path $defaultDopeRepoRoot 'Builds\Quest\DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk'))
+    $defaultCandidates = @(
+        [System.IO.Path]::GetFullPath((Join-Path $defaultDopeRepoRoot 'Builds\Quest\DynamicOscillatoryPatternEntrainment-SynedelicaPassthroughOverlayMultiLayer.apk')),
+        [System.IO.Path]::GetFullPath((Join-Path $defaultDopeRepoRoot 'Builds\Quest\DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk'))
+    )
+
+    $defaultCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 } else {
     [System.IO.Path]::GetFullPath($SourceApkPath)
 }

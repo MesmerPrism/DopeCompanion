@@ -36,16 +36,26 @@ The baseline values come from the authored scene contract in
 The repo currently bundles:
 
 - `DOPE Projected Feed Colorama Baseline`
+- `DOPE Projected Feed Colorama Soft Blur`
+- `DOPE Projected Feed Colorama Balanced Blur`
 - `DOPE Projected Feed Colorama Quality`
+- `DOPE Projected Feed Colorama Strong Gradient Warp`
 
-Both profiles are stored in:
+The bundled profile CSVs are stored in:
 
 - `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-baseline.csv`
+- `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-soft-gradient.csv`
+- `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-balanced-gradient.csv`
 - `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-quality.csv`
+- `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-strong-gradient.csv`
 
 ## Important Boundary
 
-The current public repo defines the Windows-side profile shape and the intended
-`quest_hotload_config` payload. The matching DOPE Unity runtime still needs the
-Astral-style twin/hotload bridge wired in before live push and state readback
-should be treated as complete.
+The current public repo now ships a working bundled profile path for the
+multilayer Colorama APK: the Quest runtime consumes the staged CSV from
+`runtime_hotload/runtime_overrides.csv` and reports the applied profile in
+startup diagnostics.
+
+The future `quest_twin_*` / `quest_hotload_config` LSL lane is still a
+separate transport contract. Treat bundled profile staging as the verified
+public baseline and LSL twin-state mirroring as an additional bridge lane.

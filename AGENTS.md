@@ -42,7 +42,7 @@ then refresh the mirrored APK here.
   `C:\Users\tillh\source\repos\Dynamic Oscillatory Pattern Entrainment`.
 - The current bundled public target is the projected-feed multi-layer Colorama
   build from
-  `Builds\Quest\DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk`.
+  `Builds\Quest\DynamicOscillatoryPatternEntrainment-SynedelicaPassthroughOverlayMultiLayer.apk`.
 - Use `tools\app\Sync-Bundled-Dope-Apk.ps1` to refresh the bundled APK mirror
   and pinned hash metadata.
 - Do not add build-time scene mutation logic to this repo.
@@ -52,8 +52,10 @@ then refresh the mirrored APK here.
 - The intended desktop ↔ Quest contract follows the `AstralKarateDojo`
   `quest_twin_state`, `quest_twin_commands`, and `quest_hotload_config`
   transport pattern.
-- The companion-side contract may be scaffolded here before the Unity-side DOPE
-  runtime is fully wired.
+- The bundled scene-profile CSV path is already live for the public projected-
+  feed Colorama APK.
+- The companion-side twin transport may still be scaffolded here before every
+  live `quest_twin_*` lane in the Unity runtime is fully wired.
 - Do not claim that live twin publish/monitoring is complete unless the DOPE
   runtime is actually publishing the matching `quest_twin_*` streams.
 

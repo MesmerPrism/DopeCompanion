@@ -18,6 +18,7 @@ For this repo, the CLI is useful for:
 - Quest USB and Wi-Fi ADB setup
 - headset status and foreground-app checks
 - APK install and launch
+- bundled hotload profile upload
 - CPU and GPU hint changes
 - catalog inspection
 - simple LSL monitor and twin-command probes
@@ -69,6 +70,13 @@ dope-companion --help
 |---------|-------------|
 | `catalog list` | List bundled apps, device profiles, and hotload profiles |
 
+### Hotload Profiles
+
+| Command | Description |
+|---------|-------------|
+| `hotload list` | List bundled projected-feed Colorama hotload profiles |
+| `hotload push <profile-id>` | Copy a bundled hotload CSV into the Quest app's `runtime_hotload` folder |
+
 ### LSL + Twin
 
 | Command | Description |
@@ -112,10 +120,12 @@ dope-companion status
 dope-companion catalog list
 dope-companion install samples/quest-session-kit/APKs/DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk
 dope-companion launch com.tillh.dynamicoscillatorypatternentrainment
+dope-companion hotload list
+dope-companion hotload push dope_projected_feed_colorama_balanced_gradient
 ```
 
-If you want to inspect the passive LSL side after the Unity runtime gains the
-Astral-style bridge:
+If you want to inspect the separate LSL twin lane after the Unity runtime gains
+that bridge:
 
 ```powershell
 dope-companion twin status
@@ -141,7 +151,8 @@ The important environment variables for this repo are:
   ADB behavior looks wrong.
 - The bundled public DOPE APK is currently the install and launch source of
   truth.
-- The public runtime-config CSVs are already part of this repo, but live
-  `quest_twin_*` and `quest_hotload_config` behavior depends on the matching
-  Unity-side bridge existing in the APK you installed.
+- The bundled projected-feed runtime consumes the staged hotload CSVs from this
+  repo today.
+- The future `quest_twin_*` and `quest_hotload_config` LSL lane is separate
+  from that staged file-upload path.
 

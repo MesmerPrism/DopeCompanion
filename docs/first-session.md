@@ -32,15 +32,15 @@ a Quest headset from Windows.
 6. Install the bundled APK.
 7. Launch the app.
 8. Open [Runtime Config](runtime-config.md) and select the projected-feed
-   baseline profile if you want to tune the scene from Windows.
+   baseline, soft-blur, balanced-blur, quality, or strong-gradient profile if
+   you want to restage the scene from Windows.
 
 ## Notes
 
-- The current public Windows repo bundles the APK mirror and runtime-config
-  profile metadata only.
-- The live `quest_twin_state` / `quest_hotload_config` path follows the
-  `AstralKarateDojo` contract, but the corresponding Unity-side bridge still
-  has to be wired into the DOPE runtime before live state mirroring should be
-  considered complete.
-- Until that Unity-side bridge lands, install/launch and staged config editing
-  are the supported operator-side baselines from this repo.
+- The current public Windows repo bundles the APK mirror and a working staged
+  hotload profile path for the multilayer Colorama runtime.
+- The runtime reports the active staged profile in startup diagnostics after
+  launch, which is the supported public readback path today.
+- The future `quest_twin_state` / `quest_hotload_config` live transport still
+  follows the `AstralKarateDojo` contract, but treat that as a separate lane
+  from the verified staged profile path.

@@ -87,6 +87,7 @@ $publishArgs = @(
     '-r', $RuntimeIdentifier,
     '-p:PublishSingleFile=true',
     '-p:SelfContained=false',
+    '-p:DopeCompanionBrand=Published',
     '-o', $outputPath
 )
 

@@ -11,7 +11,8 @@ public sealed record DopeDiagnosticsReportRequest(
     string? DeviceSelector = null,
     string? OutputDirectory = null,
     TimeSpan? ProbeWaitDuration = null,
-    bool RunCommandAcceptanceCheck = true);
+    bool RunCommandAcceptanceCheck = true,
+    bool IncludeLslTwinChecks = true);
 
 public sealed record DopeDiagnosticsReportResult(
     OperationOutcomeKind Level,
@@ -169,17 +170,20 @@ public sealed class DopeDiagnosticsReportService
             .QueryDeviceProfileStatusAsync(profile, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        if (_twinBridge is LslTwinModeBridge lslBridge)
+        if (request.IncludeLslTwinChecks && _twinBridge is LslTwinModeBridge lslBridge)
         {
             lslBridge.ConfigureExpectedQuestStateSource(study.App.PackageId);
             lslBridge.Open();
         }
 
-        await WaitForTwinStateAsync(
-                _twinBridge as LslTwinModeBridge,
-                request.ProbeWaitDuration ?? DefaultProbeWaitDuration,
-                cancellationToken)
-            .ConfigureAwait(false);
+        if (request.IncludeLslTwinChecks)
+        {
+            await WaitForTwinStateAsync(
+                    _twinBridge as LslTwinModeBridge,
+                    request.ProbeWaitDuration ?? DefaultProbeWaitDuration,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         var expectedName = string.IsNullOrWhiteSpace(study.Monitoring.ExpectedLslStreamName)
             ? HrvBiofeedbackStreamContract.StreamName
@@ -196,14 +200,21 @@ public sealed class DopeDiagnosticsReportService
                 new WindowsEnvironmentAnalysisRequest(
                     expectedName,
                     expectedType,
+                    ProbeExpectedLslStream: request.IncludeLslTwinChecks,
                     QuestWifiTransport: new QuestWifiTransportDiagnosticsContext(headset, request.DeviceSelector ?? headset.ConnectionLabel)),
                 cancellationToken)
             .ConfigureAwait(false);
-        var machineLslState = await BuildMachineLslStateResultAsync(study, cancellationToken).ConfigureAwait(false);
-        var twinStatePublisher = QuestTwinStatePublisherInventoryService.Inspect(_streamDiscoveryService, study.App.PackageId);
+        var machineLslState = request.IncludeLslTwinChecks
+            ? await BuildMachineLslStateResultAsync(study, cancellationToken).ConfigureAwait(false)
+            : BuildSkippedMachineLslStateResult();
+        var twinStatePublisher = request.IncludeLslTwinChecks
+            ? QuestTwinStatePublisherInventoryService.Inspect(_streamDiscoveryService, study.App.PackageId)
+            : BuildSkippedTwinStatePublisherInventory(study.App.PackageId);
         var questSetup = BuildQuestSetupSnapshot(study, request.DeviceSelector, headset, installed, profileStatus);
-        var twinConnection = BuildTwinConnectionProbe(study, headset, installed, profileStatus, _twinBridge, twinStatePublisher, request.DeviceSelector);
-        var commandAcceptance = request.RunCommandAcceptanceCheck
+        var twinConnection = request.IncludeLslTwinChecks
+            ? BuildTwinConnectionProbe(study, headset, installed, profileStatus, _twinBridge, twinStatePublisher, request.DeviceSelector)
+            : BuildSkippedTwinConnectionProbe(study);
+        var commandAcceptance = request.IncludeLslTwinChecks && request.RunCommandAcceptanceCheck
             ? await ProbeCommandAcceptanceAsync(study, _twinBridge as LslTwinModeBridge, cancellationToken).ConfigureAwait(false)
             : BuildSkippedCommandAcceptanceResult("Command acceptance check skipped by request.");
 
@@ -217,20 +228,23 @@ public sealed class DopeDiagnosticsReportService
 
         var level = CombineLevels([
             windowsEnvironment.Level,
+            profileStatus.IsActive ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
             machineLslState.Level,
             wifiTransport.Level,
             twinStatePublisher.Level,
             twinConnection.Level,
             commandAcceptance.Level
         ]);
-        var summary = level switch
-        {
-            OperationOutcomeKind.Failure => "Dope LSL/twin diagnostics found blocking issues.",
-            OperationOutcomeKind.Warning => "Dope LSL/twin diagnostics found items needing attention.",
-            OperationOutcomeKind.Preview => "Dope LSL/twin diagnostics could only run in preview mode.",
-            _ => "Dope LSL/twin diagnostics passed."
-        };
-        var detail = BuildReportSummaryDetail(windowsEnvironment, machineLslState, wifiTransport, twinStatePublisher, twinConnection, commandAcceptance);
+        var summary = BuildReportSummary(level, request.IncludeLslTwinChecks);
+        var detail = BuildReportSummaryDetail(
+            windowsEnvironment,
+            profileStatus,
+            machineLslState,
+            wifiTransport,
+            twinStatePublisher,
+            twinConnection,
+            commandAcceptance,
+            request.IncludeLslTwinChecks);
         var completedAtUtc = DateTimeOffset.UtcNow;
 
         var report = new DopeDiagnosticsReport(
@@ -1040,6 +1054,48 @@ public sealed class DopeDiagnosticsReportService
             "Passive upstream monitor state is GUI/session-owned.",
             $"The report inspects visible {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType} streams directly. Participant-session passive monitor state is only meaningful while the Experiment Session recorder is active.");
 
+    private static DopeMachineLslStateResult BuildSkippedMachineLslStateResult()
+        => new(
+            OperationOutcomeKind.Preview,
+            "Machine LSL state skipped for the public staged-profile workflow.",
+            "The public diagnostics report is running without the live twin-return lane, so machine-side LSL/twin inventory checks were skipped by policy.",
+            [],
+            DateTimeOffset.UtcNow);
+
+    private static QuestTwinStatePublisherInventory BuildSkippedTwinStatePublisherInventory(string? packageId)
+        => new(
+            OperationOutcomeKind.Preview,
+            "Quest twin-state outlet inventory skipped for the public staged-profile workflow.",
+            "The current diagnostics run is validating the bundled APK, device profile, and staged hotload path rather than a live quest_twin_state return lane.",
+            AnyPublisherVisible: false,
+            ExpectedPublisherVisible: false,
+            ExpectedSourceId: string.IsNullOrWhiteSpace(packageId)
+                ? string.Empty
+                : TwinLslSourceId.BuildQuestStateSourceId(packageId, QuestTwinStatePublisherInventoryService.StreamName, QuestTwinStatePublisherInventoryService.StreamType),
+            ExpectedSourceIdPrefix: TwinLslSourceId.QuestSourcePrefix,
+            VisiblePublishers: []);
+
+    private static DopeTwinConnectionProbeResult BuildSkippedTwinConnectionProbe(StudyShellDefinition study)
+        => new(
+            OperationOutcomeKind.Preview,
+            "Twin connection probe skipped for the public staged-profile workflow.",
+            "The current diagnostics run is intentionally scoped to the public install, device-profile, Wi-Fi path, and staged hotload workflow. Live quest_twin_state return-path checks were skipped.",
+            InletReady: false,
+            ReturnPathReady: false,
+            PinnedBuildReady: false,
+            DeviceProfileReady: false,
+            ExpectedInlet: "skipped",
+            RuntimeTarget: study.App.PackageId,
+            ConnectedInlet: "skipped",
+            Counts: "skipped",
+            QuestStatus: "skipped",
+            QuestEcho: "skipped",
+            ReturnPath: "skipped",
+            CommandChannel: CommandStreamName,
+            HotloadChannel: ConfigStreamName,
+            TransportDetail: "Live twin-return checks were skipped by policy for the public staged-profile workflow.",
+            CheckedAtUtc: DateTimeOffset.UtcNow);
+
     private static string ResolveReportDirectory(StudyShellDefinition study, string? outputDirectory)
     {
         if (!string.IsNullOrWhiteSpace(outputDirectory))
@@ -1053,28 +1109,58 @@ public sealed class DopeDiagnosticsReportService
 
     private static string BuildReportSummaryDetail(
         WindowsEnvironmentAnalysisResult windowsEnvironment,
+        DeviceProfileStatus profileStatus,
         DopeMachineLslStateResult machineLslState,
         QuestWifiTransportDiagnosticsResult wifiTransport,
         QuestTwinStatePublisherInventory twinStatePublisher,
         DopeTwinConnectionProbeResult twinConnection,
-        DopeCommandAcceptanceResult commandAcceptance)
+        DopeCommandAcceptanceResult commandAcceptance,
+        bool includeLslTwinChecks)
     {
         var attention = new[]
         {
             ("Windows Environment", windowsEnvironment.Level, windowsEnvironment.Summary),
+            ("Quest device profile", profileStatus.IsActive ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning, profileStatus.Summary),
             ("Machine LSL State", machineLslState.Level, machineLslState.Summary),
             ("Quest Wi-Fi transport", wifiTransport.Level, wifiTransport.Summary),
             ("Quest twin-state outlet", twinStatePublisher.Level, twinStatePublisher.Summary),
             ("Twin connection", twinConnection.Level, twinConnection.Summary),
             ("Command acceptance", commandAcceptance.Level, commandAcceptance.Summary)
         }
-        .Where(item => item.Level is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
+        .Where(item => item.Item2 is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
         .Select(item => $"{item.Item1}: {item.Summary}")
         .ToArray();
 
-        return attention.Length == 0
-            ? "Windows LSL, machine inventory, Quest Wi-Fi transport, Quest twin-state return path, and command acceptance all reported cleanly."
-            : string.Join(" ", attention);
+        if (attention.Length > 0)
+        {
+            return string.Join(" ", attention);
+        }
+
+        return includeLslTwinChecks
+            ? "Windows LSL, Quest device profile, machine inventory, Quest Wi-Fi transport, Quest twin-state return path, and command acceptance all reported cleanly."
+            : "Windows environment, Quest device profile, bundled APK, and Wi-Fi transport checks all reported cleanly for the public staged-profile workflow.";
+    }
+
+    private static string BuildReportSummary(OperationOutcomeKind level, bool includeLslTwinChecks)
+    {
+        if (!includeLslTwinChecks)
+        {
+            return level switch
+            {
+                OperationOutcomeKind.Failure => "Dope public diagnostics found blocking issues.",
+                OperationOutcomeKind.Warning => "Dope public diagnostics found items needing attention.",
+                OperationOutcomeKind.Preview => "Dope public diagnostics could only run in preview mode.",
+                _ => "Dope public diagnostics passed."
+            };
+        }
+
+        return level switch
+        {
+            OperationOutcomeKind.Failure => "Dope LSL/twin diagnostics found blocking issues.",
+            OperationOutcomeKind.Warning => "Dope LSL/twin diagnostics found items needing attention.",
+            OperationOutcomeKind.Preview => "Dope LSL/twin diagnostics could only run in preview mode.",
+            _ => "Dope LSL/twin diagnostics passed."
+        };
     }
 
     private static OperationOutcomeKind CombineLevels(IEnumerable<OperationOutcomeKind> levels)
