@@ -181,6 +181,39 @@
                     </Border>
                 </Grid>
             </Border>
+
+            <Border Style="{StaticResource UpdatePanelStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                        <TextBlock Text="scrcpy (Display 0 cast runtime)"
+                                   Style="{StaticResource UpdateSectionTitleStyle}" />
+                        <TextBlock Text="{Binding ScrcpyDetail}"
+                                   Style="{StaticResource UpdateSectionDetailStyle}"
+                                   Margin="0,6,0,0" />
+                        <TextBlock Style="{StaticResource UpdateSectionDetailStyle}"
+                                   Margin="0,10,0,0">
+                            <Run Text="Installed: " />
+                            <Run Text="{Binding ScrcpyCurrentVersion, Mode=OneWay}" />
+                            <Run Text="  |  Published: " />
+                            <Run Text="{Binding ScrcpyAvailableVersion, Mode=OneWay}" />
+                        </TextBlock>
+                    </StackPanel>
+
+                    <Border Grid.Column="1"
+                            VerticalAlignment="Top"
+                            Style="{StaticResource UpdateStatusChipStyle}"
+                            Tag="{Binding ScrcpyUpdateAvailable}">
+                        <TextBlock Text="{Binding ScrcpyStatusLabel}"
+                                   Style="{StaticResource UpdateStatusTextStyle}"
+                                   Tag="{Binding ScrcpyUpdateAvailable}" />
+                    </Border>
+                </Grid>
+            </Border>
         </StackPanel>
 
         <Border Grid.Row="3"

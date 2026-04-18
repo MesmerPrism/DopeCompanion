@@ -105,7 +105,7 @@ Defaults:
 | Command | Description |
 |---------|-------------|
 | `tooling status` | Show the local managed Quest tooling cache state |
-| `tooling install-official` | Install or update managed `hzdb` plus Android platform-tools |
+| `tooling install-official` | Install or update managed `hzdb`, Android platform-tools, and `scrcpy` |
 | `windows-env analyze` | Check Windows-side `adb`, `hzdb`, liblsl, and common network hazards |
 
 ## Current DOPE Workflow
@@ -143,6 +143,7 @@ The important environment variables for this repo are:
 | `DOPE_OPERATOR_DATA_ROOT` | Override the host-visible operator data root |
 | `DOPE_ADB_EXE` | Override the `adb.exe` path |
 | `DOPE_HZDB_EXE` | Override the `hzdb.exe` path |
+| `DOPE_SCRCPY_EXE` | Override the `scrcpy.exe` path |
 | `DOPE_LSL_DLL` | Override the `lsl.dll` path |
 
 ## Notes

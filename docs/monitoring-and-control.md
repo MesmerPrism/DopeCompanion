@@ -21,7 +21,7 @@ The current public control lanes are:
 - staged runtime-config editing for the projected-feed Colorama scene
 - staged hotload profile upload for the projected-feed Colorama scene
 - live-session editing in a focused popout window
-- optional `Display 0` Quest cast through a detected local `scrcpy` runtime
+- optional `Display 0` Quest cast through the managed `scrcpy` runtime
 
 The app keeps the same future-facing twin transport contract as the sibling
 operator repo:
@@ -38,10 +38,12 @@ startup diagnostics readback after launch.
 ## Cast Runtime Note
 
 The public packaged app now includes the live cast controls, including the
-resize-aware `Display 0` reload path. The cast runtime itself still comes from
-an existing local `scrcpy` install rather than from the DOPE release assets.
+resize-aware `Display 0` reload path. The cast runtime itself is now managed by
+the companion: guided setup, startup updates, and
+`dope-companion tooling install-official` fetch the published Windows release
+from the official upstream project into the LocalAppData tool cache.
 
 - official upstream project: [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy)
-- upstream license: Apache License 2.0
+- upstream license: [Apache License 2.0](https://github.com/Genymobile/scrcpy/blob/master/LICENSE)
 - DOPE public dependency boundary:
   [THIRD_PARTY_DEPENDENCIES.md](../THIRD_PARTY_DEPENDENCIES.md)

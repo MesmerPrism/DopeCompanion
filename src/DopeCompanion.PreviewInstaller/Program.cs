@@ -88,7 +88,7 @@ internal static class Program
         catch (Exception toolingException)
         {
             toolingWarning =
-                "The preview package can still be installed, but the official Quest tooling cache could not be refreshed automatically. " +
+                "The preview package can still be installed, but the managed Quest tooling cache could not be refreshed automatically. " +
                 $"{toolingException.Message}";
         }
 

@@ -406,22 +406,32 @@ public sealed class WindowsEnvironmentAnalysisService
 
     private static WindowsEnvironmentCheckResult BuildManagedToolCacheCheck(OfficialQuestToolingStatus localStatus)
     {
+        if (localStatus.IsReady && localStatus.IsDisplayCastReady)
+        {
+            return new WindowsEnvironmentCheckResult(
+                "official-tool-cache",
+                "Managed Quest tool cache",
+                OperationOutcomeKind.Success,
+                "Managed Quest tooling cache is ready.",
+                $"hzdb {localStatus.Hzdb.InstalledVersion ?? "n/a"} at {localStatus.Hzdb.InstallPath}. Android platform-tools {localStatus.PlatformTools.InstalledVersion ?? "n/a"} at {localStatus.PlatformTools.InstallPath}. scrcpy {localStatus.Scrcpy.InstalledVersion ?? "n/a"} at {localStatus.Scrcpy.InstallPath}.");
+        }
+
         if (localStatus.IsReady)
         {
             return new WindowsEnvironmentCheckResult(
                 "official-tool-cache",
-                "Managed official tool cache",
-                OperationOutcomeKind.Success,
-                "Managed Quest tooling cache is ready.",
-                $"hzdb {localStatus.Hzdb.InstalledVersion ?? "n/a"} at {localStatus.Hzdb.InstallPath}. Android platform-tools {localStatus.PlatformTools.InstalledVersion ?? "n/a"} at {localStatus.PlatformTools.InstallPath}.");
+                "Managed Quest tool cache",
+                OperationOutcomeKind.Warning,
+                "Managed Quest tooling cache is missing the Display 0 cast runtime.",
+                $"Core Quest tooling is ready, but scrcpy is not installed in the managed cache yet. Run guided setup or `dope-companion tooling install-official` so the companion can rely on the LocalAppData-managed scrcpy copy under {OfficialQuestToolingLayout.ScrcpyRootPath}.");
         }
 
         return new WindowsEnvironmentCheckResult(
             "official-tool-cache",
-            "Managed official tool cache",
+            "Managed Quest tool cache",
             OperationOutcomeKind.Warning,
             "Managed Quest tooling cache is incomplete.",
-            $"Run guided setup or `dope-companion tooling install-official` so the app can rely on the LocalAppData-managed official Meta hzdb and Google platform-tools copies under {OfficialQuestToolingLayout.RootPath}.");
+            $"Run guided setup or `dope-companion tooling install-official` so the app can rely on the LocalAppData-managed hzdb, platform-tools, and scrcpy copies under {OfficialQuestToolingLayout.RootPath}.");
     }
 
     private static WindowsEnvironmentCheckResult BuildBundledLslCheck(string? bundledLslPath, LslRuntimeState runtimeState)

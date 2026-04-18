@@ -206,7 +206,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0, 0, 0, 12),
             MaximumSize = new Size(780, 0),
-            Text = "The bootstrapper stages the latest public preview, refreshes the official Quest tooling cache from Meta and Google, trusts the preview certificate, and then installs or updates the packaged app directly."
+            Text = "The bootstrapper stages the latest public preview, refreshes the managed Quest tooling cache from Meta, Google, and the upstream scrcpy release, trusts the preview certificate, and then installs or updates the packaged app directly."
         };
         statusLayout.Controls.Add(_detailLabel, 0, 1);
 
@@ -265,7 +265,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0),
             MaximumSize = new Size(780, 0),
-            Text = "This helper installs or updates the packaged app itself. It also refreshes the managed LocalAppData cache for the official Meta hzdb and Android platform-tools downloads when those sources are reachable."
+            Text = "This helper installs or updates the packaged app itself. It also refreshes the managed LocalAppData cache for Meta hzdb, Android platform-tools, and scrcpy when those sources are reachable."
         };
         statusLayout.Controls.Add(_footerLabel, 0, 3);
 
@@ -309,7 +309,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0),
             MaximumSize = new Size(800, 0),
-            Text = "This installer stages the latest public preview, refreshes the official Quest tooling cache, and then installs or updates the packaged app directly.",
+            Text = "This installer stages the latest public preview, refreshes the managed Quest tooling cache, and then installs or updates the packaged app directly.",
             TextAlign = ContentAlignment.TopLeft
         };
 

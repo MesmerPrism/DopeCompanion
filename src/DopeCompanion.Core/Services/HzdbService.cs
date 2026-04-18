@@ -948,13 +948,13 @@ public sealed class PreviewHzdbService : IHzdbService
     public bool IsAvailable => false;
 
     public Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, string? method = null, CancellationToken cancellationToken = default)
-        => Preview("Screenshot capture requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("Screenshot capture requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     public Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)
-        => Preview("Perf capture requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("Perf capture requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     public Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default)
-        => Preview("Proximity control requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("Proximity control requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     public Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default)
         => Task.FromResult(new QuestProximityStatus(
@@ -969,19 +969,19 @@ public sealed class PreviewHzdbService : IHzdbService
             StatusDetail: "Quest proximity readback requires adb plus hzdb companion integration."));
 
     public Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
-        => Preview("Device wake via hzdb requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("Device wake via hzdb requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     public Task<OperationOutcome> GetDeviceInfoAsync(string deviceSerial, CancellationToken cancellationToken = default)
-        => Preview("Device info requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("Device info requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     public Task<OperationOutcome> ListFilesAsync(string deviceSerial, string remotePath, CancellationToken cancellationToken = default)
-        => Preview("File listing requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("File listing requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     public Task<OperationOutcome> PushFileAsync(string deviceSerial, string localPath, string remotePath, CancellationToken cancellationToken = default)
-        => Preview("File push requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("File push requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     public Task<OperationOutcome> PullFileAsync(string deviceSerial, string remotePath, string localPath, CancellationToken cancellationToken = default)
-        => Preview("File pull requires hzdb. Run guided setup or install the official Quest tooling cache first.");
+        => Preview("File pull requires hzdb. Run guided setup or install the managed Quest tooling cache first.");
 
     private static Task<OperationOutcome> Preview(string detail)
         => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Preview, "hzdb not available.", detail));

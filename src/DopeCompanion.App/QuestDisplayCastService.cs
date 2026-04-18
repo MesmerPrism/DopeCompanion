@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using DopeCompanion.Core.Models;
+using DopeCompanion.Core.Services;
 
 namespace DopeCompanion.App;
 
@@ -34,7 +35,7 @@ internal sealed class QuestDisplayCastService : IDisposable
 
     public string WindowTitle => DefaultWindowTitle;
 
-    public string ToolingPath => TryResolveScrcpyPath() ?? "scrcpy.exe not found";
+    public string ToolingPath => ScrcpyExecutableLocator.TryLocate(AppContext.BaseDirectory) ?? "scrcpy.exe not found";
 
     public OperationOutcomeKind Level
     {
@@ -315,13 +316,13 @@ internal sealed class QuestDisplayCastService : IDisposable
                 "Connect the Quest first so the cast service has a live ADB selector.");
         }
 
-        var scrcpyPath = TryResolveScrcpyPath();
+        var scrcpyPath = ScrcpyExecutableLocator.TryLocate(AppContext.BaseDirectory);
         if (string.IsNullOrWhiteSpace(scrcpyPath))
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Display 0 cast blocked.",
-                "scrcpy.exe was not found. Install scrcpy, keep the Quest Multi Stream tooling cache on this machine, or set DOPE_SCRCPY_EXE.");
+                "scrcpy.exe was not found. Run guided setup or `dope-companion tooling install-official` to refresh the managed cast runtime, keep the Quest Multi Stream tooling cache on this machine, or set DOPE_SCRCPY_EXE.");
         }
 
         var startInfo = new ProcessStartInfo
@@ -535,58 +536,6 @@ internal sealed class QuestDisplayCastService : IDisposable
             bounds.Y,
             Math.Max(1, bounds.Width),
             Math.Max(1, bounds.Height));
-
-    private static string? TryResolveScrcpyPath()
-    {
-        var questMultiStreamRepoRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "source",
-            "repos",
-            "Quest Multi Stream");
-
-        return new[]
-        {
-            Environment.GetEnvironmentVariable("DOPE_SCRCPY_EXE"),
-            Path.Combine(AppContext.BaseDirectory, "scrcpy.exe"),
-            Path.Combine(AppContext.BaseDirectory, "scrcpy", "scrcpy.exe"),
-            TryFindNewestExecutable(Path.Combine(questMultiStreamRepoRoot, "tools", "scrcpy"), "scrcpy.exe"),
-            TryFindOnPath("scrcpy.exe")
-        }
-        .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-        .Select(path => Path.GetFullPath(path!))
-        .FirstOrDefault();
-    }
-
-    private static string? TryFindNewestExecutable(string root, string fileName)
-    {
-        if (!Directory.Exists(root))
-        {
-            return null;
-        }
-
-        return Directory.EnumerateFiles(root, fileName, SearchOption.AllDirectories)
-            .Select(path => new FileInfo(path))
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .Select(file => file.FullName)
-            .FirstOrDefault();
-    }
-
-    private static string? TryFindOnPath(string fileName)
-    {
-        var pathEntries = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        foreach (var entry in pathEntries)
-        {
-            var candidate = Path.Combine(entry, fileName);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return null;
-    }
 
     private static class NativeMethods
     {

@@ -33,12 +33,15 @@ operator tooling.
 
 ### scrcpy (`scrcpy.exe` and related runtime files)
 
-- The public DOPE release currently does not ship `scrcpy` in source control or
-  in the GitHub release assets.
-- The live `Display 0` cast surface looks for an existing `scrcpy` runtime on
-  the operator machine, in this order:
-  app-local `scrcpy.exe`, app-local `scrcpy\scrcpy.exe`, the local
-  `Quest Multi Stream\tools\scrcpy` cache, then `PATH`.
+- The public DOPE release does not ship `scrcpy` in source control or as a
+  standalone GitHub release asset.
+- The guided preview installer and the CLI `tooling install-official` command
+  fetch the published Windows `scrcpy` bundle from the official upstream GitHub
+  release and keep it in the managed LocalAppData tool cache.
+- The live `Display 0` cast surface resolves `scrcpy` in this order:
+  managed LocalAppData copy, app-local `scrcpy.exe`, app-local
+  `scrcpy\scrcpy.exe`, the local `Quest Multi Stream\tools\scrcpy` cache, then
+  `PATH`.
 - Upstream project: [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy)
 - Upstream license/terms:
   [Apache License 2.0](https://github.com/Genymobile/scrcpy/blob/master/LICENSE)

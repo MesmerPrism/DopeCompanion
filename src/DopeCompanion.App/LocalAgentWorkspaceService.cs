@@ -278,7 +278,7 @@ internal sealed class LocalAgentWorkspaceService
         }
 
         builder.AppendLine("- `agent-env.ps1` and `agent-env.cmd` are available if you want a whole shell session to inherit the same sample-root overrides.");
-        builder.AppendLine("- `tooling status` only reports the managed Quest tool cache (`hzdb` and Android platform-tools). Use `windows-env analyze` for liblsl and live-stream diagnostics.");
+        builder.AppendLine("- `tooling status` reports the managed Quest tool cache (`hzdb`, Android platform-tools, and scrcpy). Use `windows-env analyze` for liblsl and live-stream diagnostics.");
         builder.AppendLine("- The wrappers also set `DOPE_OPERATOR_DATA_ROOT` so the bundled CLI keeps using the same host-visible operator-data root as the desktop app; see `LOCAL_PATHS.md`.");
         builder.AppendLine("- This workspace intentionally mirrors docs, manifests, device profiles, hotload profiles, tuning templates, and the bundled CLI without duplicating the bundled Dope APK.");
         return builder.ToString();
@@ -311,6 +311,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine($"- Managed tooling root: `{OfficialQuestToolingLayout.RootPath}`");
         builder.AppendLine($"- Managed adb path: `{OfficialQuestToolingLayout.AdbExecutablePath}`");
         builder.AppendLine($"- Managed hzdb path: `{OfficialQuestToolingLayout.HzdbExecutablePath}`");
+        builder.AppendLine($"- Managed scrcpy path: `{OfficialQuestToolingLayout.ScrcpyExecutablePath}`");
         builder.AppendLine($"- Session state root: `{CompanionOperatorDataLayout.SessionRootPath}`");
         builder.AppendLine($"- Study data root: `{CompanionOperatorDataLayout.StudyDataRootPath}`");
         builder.AppendLine($"- Diagnostics root: `{CompanionOperatorDataLayout.DiagnosticsRootPath}`");
@@ -465,7 +466,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("- `.\\dope-companion.ps1 tooling status`");
         builder.AppendLine();
         builder.AppendLine("The wrapper script preloads the mirrored sample-root overrides and the bundled liblsl path before invoking the bundled CLI under `cli/current`.");
-        builder.AppendLine("`tooling status` only reports the managed Quest tool cache. Use `windows-env analyze` for liblsl and expected-stream diagnostics, or `study diagnostics-report dope-projected-feed-colorama` when you need one shareable LSL/twin report folder.");
+        builder.AppendLine("`tooling status` reports the managed Quest tool cache. Use `windows-env analyze` for liblsl and expected-stream diagnostics, or `study diagnostics-report dope-projected-feed-colorama` when you need one shareable LSL/twin report folder.");
         builder.AppendLine("If the wrapper reports that the bundled CLI is unavailable, say that clearly and reason from the mirrored docs and examples instead of assuming repo source is available.");
         builder.AppendLine();
         builder.AppendLine("In your explanation, cover:");

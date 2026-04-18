@@ -29,8 +29,9 @@ certificate + `.appinstaller` flow first.
 
 The packaged app now includes the live-session editor and the `Display 0` cast
 surface. That cast window depends on the upstream `scrcpy` runtime. The public
-DOPE release does not currently bundle `scrcpy.exe`; it discovers an existing
-install from the same machine.
+DOPE release does not ship `scrcpy.exe` as a standalone release asset, but the
+guided helper and `dope-companion tooling install-official` now fetch and
+maintain the upstream Windows release in the managed LocalAppData tool cache.
 
 The public release page is:
 
@@ -83,18 +84,19 @@ the latest packaged preview has not been published yet.
 ## Display Cast Dependency
 
 The `Live Session Window` can open a `Display 0` cast with resize-aware reloads
-from the public packaged app, but that specific feature needs `scrcpy` on the
-operator machine.
+from the public packaged app, and the companion now manages the required
+`scrcpy` runtime the same way it manages `hzdb` and Android platform-tools.
 
-- current public posture: DOPE Companion ships the cast UI, but not the
-  `scrcpy` binary itself
+- current public posture: DOPE Companion ships the cast UI and downloads the
+  upstream `scrcpy` Windows bundle into the managed LocalAppData tool cache
+  during guided setup, startup update, or `tooling install-official`
 - detection order:
-  app-local `scrcpy.exe`, app-local `scrcpy\scrcpy.exe`, the local
+  managed `scrcpy`, app-local `scrcpy.exe`, app-local `scrcpy\scrcpy.exe`, the local
   `Quest Multi Stream\tools\scrcpy` cache, then `PATH`
 - if no `scrcpy` runtime is found, the rest of the companion still works, but
   the `Display 0` cast action will stay unavailable
 - upstream project: [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy)
-- upstream license: Apache License 2.0
+- upstream license: [Apache License 2.0](https://github.com/Genymobile/scrcpy/blob/master/LICENSE)
 - DOPE-specific dependency notes:
   [THIRD_PARTY_DEPENDENCIES.md](../THIRD_PARTY_DEPENDENCIES.md)
 

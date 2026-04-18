@@ -23,9 +23,12 @@ public sealed record OfficialQuestToolStatus(
 
 public sealed record OfficialQuestToolingStatus(
     OfficialQuestToolStatus Hzdb,
-    OfficialQuestToolStatus PlatformTools)
+    OfficialQuestToolStatus PlatformTools,
+    OfficialQuestToolStatus Scrcpy)
 {
     public bool IsReady => Hzdb.IsInstalled && PlatformTools.IsInstalled;
+    public bool IsDisplayCastReady => Scrcpy.IsInstalled;
+    public bool HasUpdates => Hzdb.UpdateAvailable || PlatformTools.UpdateAvailable || Scrcpy.UpdateAvailable;
 }
 
 public sealed record OfficialQuestToolingInstallResult(
@@ -52,12 +55,20 @@ public static class OfficialQuestToolingLayout
     public static string PlatformToolsMetadataPath => Path.Combine(PlatformToolsCurrentPath, "metadata.json");
     public static string PlatformToolsSourcePropertiesPath => Path.Combine(PlatformToolsDirectoryPath, "source.properties");
 
+    public static string ScrcpyRootPath => Path.Combine(RootPath, "scrcpy");
+    public static string ScrcpyCurrentPath => Path.Combine(ScrcpyRootPath, "current");
+    public static string ScrcpyExecutablePath => Path.Combine(ScrcpyCurrentPath, "scrcpy.exe");
+    public static string ScrcpyMetadataPath => Path.Combine(ScrcpyCurrentPath, "metadata.json");
+
     public static string? TryReadInstalledHzdbVersion()
         => TryReadInstalledVersionFromMetadata(HzdbMetadataPath);
 
     public static string? TryReadInstalledPlatformToolsVersion()
         => TryReadInstalledVersionFromSourceProperties(PlatformToolsSourcePropertiesPath)
            ?? TryReadInstalledVersionFromMetadata(PlatformToolsMetadataPath);
+
+    public static string? TryReadInstalledScrcpyVersion()
+        => TryReadInstalledVersionFromMetadata(ScrcpyMetadataPath);
 
     private static string? TryReadInstalledVersionFromMetadata(string metadataPath)
     {
@@ -107,6 +118,10 @@ public sealed class OfficialQuestToolingService : IDisposable
     public const string AndroidPlatformToolsDownloadBaseUri = "https://dl.google.com/android/repository/";
     public const string AndroidPlatformToolsLicenseSummary = "Android Software Development Kit License Agreement";
     public const string AndroidPlatformToolsLicenseUri = "https://developer.android.com/studio/releases/platform-tools";
+    public const string ScrcpyLatestReleaseApiUri = "https://api.github.com/repos/Genymobile/scrcpy/releases/latest";
+    public const string ScrcpyProjectUri = "https://github.com/Genymobile/scrcpy";
+    public const string ScrcpyLicenseSummary = "Apache License 2.0";
+    public const string ScrcpyLicenseUri = "https://github.com/Genymobile/scrcpy/blob/master/LICENSE";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -135,16 +150,19 @@ public sealed class OfficialQuestToolingService : IDisposable
     public OfficialQuestToolingStatus GetLocalStatus()
         => new(
             BuildHzdbStatus(OfficialQuestToolingLayout.TryReadInstalledHzdbVersion(), availableVersion: null),
-            BuildPlatformToolsStatus(OfficialQuestToolingLayout.TryReadInstalledPlatformToolsVersion(), availableVersion: null));
+            BuildPlatformToolsStatus(OfficialQuestToolingLayout.TryReadInstalledPlatformToolsVersion(), availableVersion: null),
+            BuildScrcpyStatus(OfficialQuestToolingLayout.TryReadInstalledScrcpyVersion(), availableVersion: null));
 
     public async Task<OfficialQuestToolingStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var hzdbRelease = await FetchHzdbReleaseAsync(cancellationToken).ConfigureAwait(false);
         var platformToolsRelease = await FetchPlatformToolsReleaseAsync(cancellationToken).ConfigureAwait(false);
+        var scrcpyRelease = await FetchScrcpyReleaseAsync(cancellationToken).ConfigureAwait(false);
 
         return new OfficialQuestToolingStatus(
             BuildHzdbStatus(OfficialQuestToolingLayout.TryReadInstalledHzdbVersion(), hzdbRelease.Version),
-            BuildPlatformToolsStatus(OfficialQuestToolingLayout.TryReadInstalledPlatformToolsVersion(), platformToolsRelease.Version));
+            BuildPlatformToolsStatus(OfficialQuestToolingLayout.TryReadInstalledPlatformToolsVersion(), platformToolsRelease.Version),
+            BuildScrcpyStatus(OfficialQuestToolingLayout.TryReadInstalledScrcpyVersion(), scrcpyRelease.Version));
     }
 
     public async Task<OfficialQuestToolingInstallResult> InstallOrUpdateAsync(
@@ -160,36 +178,49 @@ public sealed class OfficialQuestToolingService : IDisposable
         progress?.Report(new OfficialQuestToolingProgress(
             "Checking Android platform-tools release",
             "Reading the latest published Android SDK Platform-Tools revision from Google's official repository metadata.",
-            20));
+            15));
         var platformToolsRelease = await FetchPlatformToolsReleaseAsync(cancellationToken).ConfigureAwait(false);
+
+        progress?.Report(new OfficialQuestToolingProgress(
+            "Checking scrcpy release",
+            "Reading the latest published Windows scrcpy release metadata from the official upstream GitHub project.",
+            25));
+        var scrcpyRelease = await FetchScrcpyReleaseAsync(cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new OfficialQuestToolingProgress(
             "Installing Meta hzdb",
             $"Downloading Meta's published Windows hzdb package {hzdbRelease.Version}.",
-            35));
+            40));
         var hzdbChanged = await EnsureHzdbAsync(hzdbRelease, cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new OfficialQuestToolingProgress(
             "Installing Android platform-tools",
             $"Downloading Google's published Android SDK Platform-Tools {platformToolsRelease.Version}.",
-            70));
+            60));
         var platformToolsChanged = await EnsurePlatformToolsAsync(platformToolsRelease, cancellationToken).ConfigureAwait(false);
+
+        progress?.Report(new OfficialQuestToolingProgress(
+            "Installing scrcpy",
+            $"Downloading the published Windows scrcpy runtime {scrcpyRelease.Version}.",
+            80));
+        var scrcpyChanged = await EnsureScrcpyAsync(scrcpyRelease, cancellationToken).ConfigureAwait(false);
 
         var status = new OfficialQuestToolingStatus(
             BuildHzdbStatus(OfficialQuestToolingLayout.TryReadInstalledHzdbVersion(), hzdbRelease.Version),
-            BuildPlatformToolsStatus(OfficialQuestToolingLayout.TryReadInstalledPlatformToolsVersion(), platformToolsRelease.Version));
+            BuildPlatformToolsStatus(OfficialQuestToolingLayout.TryReadInstalledPlatformToolsVersion(), platformToolsRelease.Version),
+            BuildScrcpyStatus(OfficialQuestToolingLayout.TryReadInstalledScrcpyVersion(), scrcpyRelease.Version));
 
         progress?.Report(new OfficialQuestToolingProgress(
-            "Official Quest tooling ready",
-            "The managed LocalAppData tool cache now points at the latest fetched official Quest developer tools.",
+            "Managed Quest tooling ready",
+            "The managed LocalAppData tool cache now points at the latest fetched Quest operator tools.",
             100));
 
-        var changed = hzdbChanged || platformToolsChanged;
+        var changed = hzdbChanged || platformToolsChanged || scrcpyChanged;
         return new OfficialQuestToolingInstallResult(
             status,
             changed,
-            changed ? "Official Quest tooling installed or updated." : "Official Quest tooling was already current.",
-            $"hzdb {status.Hzdb.InstalledVersion ?? "n/a"} | Android platform-tools {status.PlatformTools.InstalledVersion ?? "n/a"}");
+            changed ? "Managed Quest tooling installed or updated." : "Managed Quest tooling was already current.",
+            $"hzdb {status.Hzdb.InstalledVersion ?? "n/a"} | Android platform-tools {status.PlatformTools.InstalledVersion ?? "n/a"} | scrcpy {status.Scrcpy.InstalledVersion ?? "n/a"}");
     }
 
     public void Dispose()
@@ -235,6 +266,25 @@ public sealed class OfficialQuestToolingService : IDisposable
         return string.Equals(actual, checksum.Trim().ToLowerInvariant(), StringComparison.Ordinal);
     }
 
+    internal static bool ChecksumMatchesSha256(byte[] payloadBytes, string checksum)
+    {
+        if (string.IsNullOrWhiteSpace(checksum))
+            return false;
+
+        const string prefix = "sha256:";
+        var expected = checksum.Trim();
+        if (expected.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            expected = expected[prefix.Length..].Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(expected))
+            return false;
+
+        var actual = Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant();
+        return string.Equals(actual, expected.ToLowerInvariant(), StringComparison.Ordinal);
+    }
+
     internal static string? ParsePlatformToolsRevision(string sourcePropertiesText)
     {
         if (string.IsNullOrWhiteSpace(sourcePropertiesText))
@@ -276,6 +326,72 @@ public sealed class OfficialQuestToolingService : IDisposable
             metadata.License.Trim());
     }
 
+    internal static (string Version, string AssetName, string DownloadUri, string? ChecksumSha256, string? Sha256SumsUri, string HtmlUri) ParseScrcpyReleaseMetadataJson(string json)
+    {
+        var release = JsonSerializer.Deserialize<ScrcpyReleaseResponse>(json, WebJsonOptions)
+                      ?? throw new InvalidOperationException("scrcpy release metadata response was empty.");
+
+        if (string.IsNullOrWhiteSpace(release.TagName) ||
+            string.IsNullOrWhiteSpace(release.HtmlUrl) ||
+            release.Assets is null ||
+            release.Assets.Count == 0)
+        {
+            throw new InvalidOperationException("scrcpy release metadata response did not include the expected tag, release URL, or asset list.");
+        }
+
+        var version = release.TagName.Trim().TrimStart('v', 'V');
+        if (string.IsNullOrWhiteSpace(version))
+            throw new InvalidOperationException("scrcpy release metadata did not include a usable version tag.");
+
+        var preferredAssetName = $"scrcpy-win64-v{version}.zip";
+        var windowsAsset = release.Assets.FirstOrDefault(asset =>
+                               string.Equals(asset.Name, preferredAssetName, StringComparison.OrdinalIgnoreCase))
+                           ?? release.Assets.FirstOrDefault(asset =>
+                               !string.IsNullOrWhiteSpace(asset.Name) &&
+                               asset.Name.StartsWith("scrcpy-win64-v", StringComparison.OrdinalIgnoreCase) &&
+                               asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+
+        if (windowsAsset is null ||
+            string.IsNullOrWhiteSpace(windowsAsset.Name) ||
+            string.IsNullOrWhiteSpace(windowsAsset.BrowserDownloadUrl))
+        {
+            throw new InvalidOperationException("scrcpy release metadata did not include the expected Windows x64 asset.");
+        }
+
+        var sha256SumsAsset = release.Assets.FirstOrDefault(asset =>
+            string.Equals(asset.Name, "SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase));
+
+        return (
+            version,
+            windowsAsset.Name.Trim(),
+            windowsAsset.BrowserDownloadUrl.Trim(),
+            NormalizeSha256Digest(windowsAsset.Digest),
+            sha256SumsAsset?.BrowserDownloadUrl?.Trim(),
+            release.HtmlUrl.Trim());
+    }
+
+    internal static string? ParseSha256SumsFile(string sha256SumsText, string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(sha256SumsText) || string.IsNullOrWhiteSpace(assetName))
+            return null;
+
+        foreach (var line in sha256SumsText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length < 2)
+                continue;
+
+            var candidateAssetName = parts[^1].TrimStart('*');
+            if (!string.Equals(candidateAssetName, assetName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var hash = parts[0].Trim();
+            return string.IsNullOrWhiteSpace(hash) ? null : hash;
+        }
+
+        return null;
+    }
+
     private OfficialQuestToolStatus BuildHzdbStatus(string? installedVersion, string? availableVersion)
         => new(
             Id: "meta-hzdb",
@@ -303,6 +419,20 @@ public sealed class OfficialQuestToolingService : IDisposable
             SourceUri: AndroidPlatformToolsRepositoryUri,
             LicenseSummary: AndroidPlatformToolsLicenseSummary,
             LicenseUri: AndroidPlatformToolsLicenseUri);
+
+    private OfficialQuestToolStatus BuildScrcpyStatus(string? installedVersion, string? availableVersion)
+        => new(
+            Id: "scrcpy",
+            DisplayName: "scrcpy (Display 0 cast runtime)",
+            IsInstalled: File.Exists(OfficialQuestToolingLayout.ScrcpyExecutablePath),
+            InstalledVersion: installedVersion,
+            AvailableVersion: availableVersion,
+            UpdateAvailable: !string.IsNullOrWhiteSpace(availableVersion)
+                             && !string.Equals(installedVersion?.Trim(), availableVersion.Trim(), StringComparison.OrdinalIgnoreCase),
+            InstallPath: OfficialQuestToolingLayout.ScrcpyExecutablePath,
+            SourceUri: ScrcpyProjectUri,
+            LicenseSummary: ScrcpyLicenseSummary,
+            LicenseUri: ScrcpyLicenseUri);
 
     private async Task<HzdbReleaseMetadata> FetchHzdbReleaseAsync(CancellationToken cancellationToken)
     {
@@ -371,6 +501,33 @@ public sealed class OfficialQuestToolingService : IDisposable
             version,
             new Uri(new Uri(AndroidPlatformToolsDownloadBaseUri), relativeUrl).AbsoluteUri,
             checksum);
+    }
+
+    private async Task<ScrcpyReleaseMetadata> FetchScrcpyReleaseAsync(CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.GetAsync(ScrcpyLatestReleaseApiUri, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var release = ParseScrcpyReleaseMetadataJson(json);
+        var checksumSha256 = release.ChecksumSha256;
+        if (string.IsNullOrWhiteSpace(checksumSha256) && !string.IsNullOrWhiteSpace(release.Sha256SumsUri))
+        {
+            using var checksumResponse = await _httpClient.GetAsync(release.Sha256SumsUri, cancellationToken).ConfigureAwait(false);
+            checksumResponse.EnsureSuccessStatusCode();
+            var checksumText = await checksumResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            checksumSha256 = ParseSha256SumsFile(checksumText, release.AssetName);
+        }
+
+        if (string.IsNullOrWhiteSpace(checksumSha256))
+            throw new InvalidOperationException("scrcpy release metadata did not include a usable SHA-256 checksum for the Windows asset.");
+
+        return new ScrcpyReleaseMetadata(
+            release.Version,
+            release.AssetName,
+            release.DownloadUri,
+            checksumSha256,
+            release.HtmlUri);
     }
 
     private async Task<bool> EnsureHzdbAsync(HzdbReleaseMetadata release, CancellationToken cancellationToken)
@@ -449,6 +606,41 @@ public sealed class OfficialQuestToolingService : IDisposable
         return true;
     }
 
+    private async Task<bool> EnsureScrcpyAsync(ScrcpyReleaseMetadata release, CancellationToken cancellationToken)
+    {
+        var installedVersion = OfficialQuestToolingLayout.TryReadInstalledScrcpyVersion();
+        if (!NeedsInstall(installedVersion, OfficialQuestToolingLayout.ScrcpyExecutablePath, release.Version))
+            return false;
+
+        var payloadBytes = await DownloadBytesAsync(release.DownloadUri, cancellationToken).ConfigureAwait(false);
+        if (!ChecksumMatchesSha256(payloadBytes, release.ChecksumSha256))
+            throw new InvalidOperationException($"scrcpy checksum verification failed for {release.DownloadUri}.");
+
+        var componentRoot = OfficialQuestToolingLayout.ScrcpyRootPath;
+        var stagingPath = CreateComponentStagingPath(componentRoot);
+        Directory.CreateDirectory(stagingPath);
+
+        try
+        {
+            ExtractScrcpyArchive(payloadBytes, stagingPath);
+            WriteMetadata(
+                Path.Combine(stagingPath, "metadata.json"),
+                new OfficialQuestToolMetadata(release.Version, release.HtmlUri, ScrcpyLicenseSummary, ScrcpyLicenseUri));
+            ReplaceCurrentDirectory(componentRoot, stagingPath);
+        }
+        catch
+        {
+            if (Directory.Exists(stagingPath))
+            {
+                Directory.Delete(stagingPath, recursive: true);
+            }
+
+            throw;
+        }
+
+        return true;
+    }
+
     private async Task<byte[]> DownloadBytesAsync(string uri, CancellationToken cancellationToken)
     {
         using var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
@@ -509,6 +701,40 @@ public sealed class OfficialQuestToolingService : IDisposable
             throw new InvalidOperationException("Android platform-tools archive did not include platform-tools/adb.exe.");
     }
 
+    private static void ExtractScrcpyArchive(byte[] payloadBytes, string destinationPath)
+    {
+        using var archiveStream = new MemoryStream(payloadBytes, writable: false);
+        using var zipArchive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
+
+        foreach (var entry in zipArchive.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.FullName))
+                continue;
+
+            var normalized = NormalizeArchivePath(entry.FullName);
+            var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (segments.Length <= 1)
+                continue;
+
+            var relativePath = Path.Combine(segments.Skip(1).ToArray());
+            if (string.IsNullOrWhiteSpace(relativePath))
+                continue;
+
+            var targetPath = Path.Combine(destinationPath, relativePath);
+            if (normalized.EndsWith("/", StringComparison.Ordinal))
+            {
+                Directory.CreateDirectory(targetPath);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            entry.ExtractToFile(targetPath, overwrite: true);
+        }
+
+        if (!File.Exists(Path.Combine(destinationPath, "scrcpy.exe")))
+            throw new InvalidOperationException("scrcpy archive did not include scrcpy.exe.");
+    }
+
     private static string CreateComponentStagingPath(string componentRoot)
         => Path.Combine(componentRoot, "_staging_" + Guid.NewGuid().ToString("N"));
 
@@ -527,6 +753,18 @@ public sealed class OfficialQuestToolingService : IDisposable
     private static string NormalizeArchivePath(string path)
         => path.Replace('\\', '/').TrimStart('/');
 
+    private static string? NormalizeSha256Digest(string? digest)
+    {
+        if (string.IsNullOrWhiteSpace(digest))
+            return null;
+
+        const string prefix = "sha256:";
+        var trimmed = digest.Trim();
+        return trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? trimmed[prefix.Length..].Trim()
+            : trimmed;
+    }
+
     private static void WriteMetadata(string destinationPath, OfficialQuestToolMetadata metadata)
         => File.WriteAllText(destinationPath, JsonSerializer.Serialize(metadata, JsonOptions));
 
@@ -542,4 +780,16 @@ public sealed class OfficialQuestToolingService : IDisposable
     private sealed record HzdbReleaseMetadata(string Version, string TarballUri, string Integrity, string License);
 
     private sealed record PlatformToolsReleaseMetadata(string Version, string DownloadUri, string ChecksumSha1);
+
+    private sealed record ScrcpyReleaseMetadata(string Version, string AssetName, string DownloadUri, string ChecksumSha256, string HtmlUri);
+
+    private sealed record ScrcpyReleaseResponse(
+        [property: JsonPropertyName("tag_name")] string TagName,
+        [property: JsonPropertyName("html_url")] string HtmlUrl,
+        [property: JsonPropertyName("assets")] IReadOnlyList<ScrcpyReleaseAssetResponse>? Assets);
+
+    private sealed record ScrcpyReleaseAssetResponse(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("browser_download_url")] string BrowserDownloadUrl,
+        [property: JsonPropertyName("digest")] string? Digest);
 }

@@ -151,6 +151,12 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
     public string PlatformToolsAvailableVersion => _toolingStatus.PlatformTools.AvailableVersion ?? "n/a";
     public string PlatformToolsDetail => $"Managed path: {_toolingStatus.PlatformTools.InstallPath}";
 
+    public bool ScrcpyUpdateAvailable => _toolingStatus.Scrcpy.UpdateAvailable;
+    public string ScrcpyStatusLabel => _toolingStatus.Scrcpy.UpdateAvailable ? "Update ready" : "Current";
+    public string ScrcpyCurrentVersion => _toolingStatus.Scrcpy.InstalledVersion ?? "n/a";
+    public string ScrcpyAvailableVersion => _toolingStatus.Scrcpy.AvailableVersion ?? "n/a";
+    public string ScrcpyDetail => $"Managed path: {_toolingStatus.Scrcpy.InstallPath}";
+
     private async Task ExecutePrimaryActionAsync()
     {
         if (IsCompleted)
@@ -163,13 +169,13 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         ProgressPercent = 5;
         ProgressStatus = "Preparing updates";
         ProgressDetail = _appStatus.UpdateAvailable
-            ? "The companion will refresh the managed official Quest tooling cache first, then install the published Windows package directly without opening the App Installer UI."
-            : "The companion will refresh the managed official Quest tooling cache in place.";
+            ? "The companion will refresh the managed Quest tooling cache first, then install the published Windows package directly without opening the App Installer UI."
+            : "The companion will refresh the managed Quest tooling cache in place.";
 
         string toolingMessage;
         try
         {
-            if (_toolingStatus.Hzdb.UpdateAvailable || _toolingStatus.PlatformTools.UpdateAvailable)
+            if (_toolingStatus.HasUpdates)
             {
                 var toolingProgress = new Progress<OfficialQuestToolingProgress>(update =>
                 {
@@ -184,7 +190,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
             }
             else
             {
-                toolingMessage = "Official Quest tooling was already current.";
+                toolingMessage = "Managed Quest tooling was already current.";
             }
 
             if (_appStatus.UpdateAvailable)
@@ -210,8 +216,8 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
             }
             else
             {
-                Heading = "Official Quest tooling updated";
-                Summary = "Official Quest tooling updated";
+                Heading = "Managed Quest tooling updated";
+                Summary = "Managed Quest tooling updated";
                 Detail = toolingMessage;
             }
 
@@ -289,6 +295,11 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(PlatformToolsCurrentVersion));
         OnPropertyChanged(nameof(PlatformToolsAvailableVersion));
         OnPropertyChanged(nameof(PlatformToolsDetail));
+        OnPropertyChanged(nameof(ScrcpyUpdateAvailable));
+        OnPropertyChanged(nameof(ScrcpyStatusLabel));
+        OnPropertyChanged(nameof(ScrcpyCurrentVersion));
+        OnPropertyChanged(nameof(ScrcpyAvailableVersion));
+        OnPropertyChanged(nameof(ScrcpyDetail));
     }
 
     private static string BuildInitialHeading(StartupUpdateSnapshot snapshot)
@@ -296,13 +307,13 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
             ? "App and tooling updates are available"
             : snapshot.App.UpdateAvailable
                 ? "A Windows package update is available"
-                : "Official Quest tooling updates are available";
+                : "Managed Quest tooling updates are available";
 
     private static string BuildInitialSummary(StartupUpdateSnapshot snapshot)
     {
         if (snapshot.App.UpdateAvailable && snapshot.HasToolingUpdates)
         {
-            return "A newer Windows package and newer official Quest tooling are available.";
+            return "A newer Windows package and newer managed Quest tooling are available.";
         }
 
         if (snapshot.App.UpdateAvailable)
@@ -310,11 +321,11 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
             return "A newer packaged Windows release is available for this install.";
         }
 
-        return "Meta hzdb and/or Android platform-tools can be refreshed from their published upstream sources.";
+        return "Meta hzdb, Android platform-tools, and/or scrcpy can be refreshed from their published upstream sources.";
     }
 
     private static string BuildInitialDetail(StartupUpdateSnapshot snapshot)
         => snapshot.App.UpdateAvailable
-            ? "Update now refreshes the managed official Quest tooling cache first and then installs the Windows package directly from the published App Installer feed."
-            : "Update now refreshes the managed official Quest tooling cache in place without leaving the app.";
+            ? "Update now refreshes the managed Quest tooling cache first and then installs the Windows package directly from the published App Installer feed."
+            : "Update now refreshes the managed Quest tooling cache in place without leaving the app.";
 }

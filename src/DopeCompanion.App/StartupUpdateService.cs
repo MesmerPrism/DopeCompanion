@@ -7,7 +7,7 @@ internal sealed record StartupUpdateSnapshot(
     PublishedAppUpdateStatus App,
     OfficialQuestToolingStatus Tooling)
 {
-    public bool HasToolingUpdates => Tooling.Hzdb.UpdateAvailable || Tooling.PlatformTools.UpdateAvailable;
+    public bool HasToolingUpdates => Tooling.HasUpdates;
     public bool HasUpdates => App.UpdateAvailable || HasToolingUpdates;
 }
 

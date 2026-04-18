@@ -33,7 +33,18 @@ public sealed class StartupUpdateWindowViewModelTests
                     InstallPath: @"C:\tooling\platform-tools\current\platform-tools\adb.exe",
                     SourceUri: OfficialQuestToolingService.AndroidPlatformToolsRepositoryUri,
                     LicenseSummary: OfficialQuestToolingService.AndroidPlatformToolsLicenseSummary,
-                    LicenseUri: OfficialQuestToolingService.AndroidPlatformToolsLicenseUri)));
+                    LicenseUri: OfficialQuestToolingService.AndroidPlatformToolsLicenseUri),
+                new OfficialQuestToolStatus(
+                    Id: "scrcpy",
+                    DisplayName: "scrcpy (Display 0 cast runtime)",
+                    IsInstalled: false,
+                    InstalledVersion: null,
+                    AvailableVersion: "3.3.4",
+                    UpdateAvailable: true,
+                    InstallPath: @"C:\tooling\scrcpy\current\scrcpy.exe",
+                    SourceUri: OfficialQuestToolingService.ScrcpyProjectUri,
+                    LicenseSummary: OfficialQuestToolingService.ScrcpyLicenseSummary,
+                    LicenseUri: OfficialQuestToolingService.ScrcpyLicenseUri)));
 
         var updatedToolingStatus = new OfficialQuestToolingStatus(
             snapshot.Tooling.Hzdb with
@@ -47,6 +58,12 @@ public sealed class StartupUpdateWindowViewModelTests
                 IsInstalled = true,
                 InstalledVersion = "37.0.0",
                 UpdateAvailable = false
+            },
+            snapshot.Tooling.Scrcpy with
+            {
+                IsInstalled = true,
+                InstalledVersion = "3.3.4",
+                UpdateAvailable = false
             });
 
         var viewModel = new StartupUpdateWindowViewModel(
@@ -54,19 +71,21 @@ public sealed class StartupUpdateWindowViewModelTests
             (_, _) => Task.FromResult(new OfficialQuestToolingInstallResult(
                 updatedToolingStatus,
                 Changed: true,
-                Summary: "Official Quest tooling installed or updated.",
-                Detail: "hzdb 1.0.1 | Android platform-tools 37.0.0")),
+                Summary: "Managed Quest tooling installed or updated.",
+                Detail: "hzdb 1.0.1 | Android platform-tools 37.0.0 | scrcpy 3.3.4")),
             (_, _, _) => Task.CompletedTask);
 
         viewModel.PrimaryActionCommand.Execute(null);
         await WaitForAsync(() => viewModel.IsCompleted);
 
-        Assert.Equal("Official Quest tooling updated", viewModel.Heading);
+        Assert.Equal("Managed Quest tooling updated", viewModel.Heading);
         Assert.Equal("1.0.1", viewModel.HzdbCurrentVersion);
         Assert.Equal("Current", viewModel.HzdbStatusLabel);
         Assert.Equal("37.0.0", viewModel.PlatformToolsCurrentVersion);
         Assert.Equal("Current", viewModel.PlatformToolsStatusLabel);
-        Assert.Equal("hzdb 1.0.1 | Android platform-tools 37.0.0", viewModel.Detail);
+        Assert.Equal("3.3.4", viewModel.ScrcpyCurrentVersion);
+        Assert.Equal("Current", viewModel.ScrcpyStatusLabel);
+        Assert.Equal("hzdb 1.0.1 | Android platform-tools 37.0.0 | scrcpy 3.3.4", viewModel.Detail);
     }
 
     private static async Task WaitForAsync(Func<bool> condition)

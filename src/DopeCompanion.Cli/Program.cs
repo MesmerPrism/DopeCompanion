@@ -1462,10 +1462,10 @@ public static class Program
 
     private static Command BuildToolingCommand()
     {
-        var toolingCommand = new Command("tooling", "Manage the official Quest developer tooling used by the companion");
+        var toolingCommand = new Command("tooling", "Manage the Quest operator tooling cache used by the companion");
         var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
 
-        var statusCommand = new Command("status", "Show the managed official Quest tooling state for hzdb plus Android platform-tools");
+        var statusCommand = new Command("status", "Show the managed Quest tooling state for hzdb, Android platform-tools, and scrcpy");
         var checkUpstreamOption = new Option<bool>("--check-upstream", "Check the latest published upstream versions as well as the local managed installs.");
         statusCommand.Add(jsonOption);
         statusCommand.Add(checkUpstreamOption);
@@ -1485,7 +1485,7 @@ public static class Program
             PrintToolingStatus(status, includeUpstream: checkUpstream);
         });
 
-        var installCommand = new Command("install-official", "Install or update Meta hzdb plus Android platform-tools into the managed LocalAppData tool cache");
+        var installCommand = new Command("install-official", "Install or update Meta hzdb, Android platform-tools, and scrcpy into the managed LocalAppData tool cache");
         installCommand.Add(jsonOption);
         installCommand.Handler = CommandHandler.Create(async (bool json) =>
         {
@@ -1822,14 +1822,17 @@ public static class Program
     private static void PrintToolingStatus(OfficialQuestToolingStatus status, bool includeUpstream)
     {
         Console.WriteLine($"Managed tooling root: {OfficialQuestToolingLayout.RootPath}");
-        Console.WriteLine($"Ready: {status.IsReady}");
+        Console.WriteLine($"Quest control ready: {status.IsReady}");
+        Console.WriteLine($"Display cast ready: {status.IsDisplayCastReady}");
         Console.WriteLine();
 
         PrintToolingComponent(status.Hzdb, includeUpstream);
         Console.WriteLine();
         PrintToolingComponent(status.PlatformTools, includeUpstream);
         Console.WriteLine();
-        Console.WriteLine("LSL note: liblsl is bundled with packaged installs and exported agent workspaces, but it is not part of the managed official Quest tool cache.");
+        PrintToolingComponent(status.Scrcpy, includeUpstream);
+        Console.WriteLine();
+        Console.WriteLine("LSL note: liblsl is bundled with packaged installs and exported agent workspaces, but it is not part of the managed Quest tool cache.");
         Console.WriteLine("Use `dope-companion windows-env analyze` to inspect the active liblsl runtime path and expected stream visibility.");
     }
 

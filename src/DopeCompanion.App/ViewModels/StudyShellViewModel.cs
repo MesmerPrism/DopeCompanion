@@ -3864,7 +3864,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             var unavailableOutcome = new OperationOutcome(
                 OperationOutcomeKind.Preview,
                 "hzdb not available.",
-                "Run guided setup or install the official Quest tooling cache before using Quest screenshot capture.");
+                "Run guided setup or install the managed Quest tooling cache before using Quest screenshot capture.");
             await ApplyOutcomeAsync(
                 "Capture Quest Screenshot",
                 unavailableOutcome).ConfigureAwait(false);
@@ -10170,7 +10170,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             WorkflowGuideQuestScreenshotLevel = OperationOutcomeKind.Preview;
             WorkflowGuideQuestScreenshotSummary = "Quest screenshot capture unavailable.";
-            WorkflowGuideQuestScreenshotDetail = "Run guided setup or install the official Quest tooling cache before using Quest screenshot capture in this verification step.";
+            WorkflowGuideQuestScreenshotDetail = "Run guided setup or install the managed Quest tooling cache before using Quest screenshot capture in this verification step.";
             WorkflowGuideQuestScreenshotPath = string.Empty;
             WorkflowGuideQuestScreenshotPreview = null;
             return;
@@ -12948,7 +12948,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : "Live proximity readback unavailable.";
             ProximityDetail = trackedKeepAwakeExpected
                 ? "The companion requested the Quest Multi Stream-style prox_close keep-awake override, but live vrpowermanager readback is unavailable because hzdb is not available."
-                : "Run guided setup or install the official Quest tooling cache to read live Quest vrpowermanager proximity state. The direct ADB proximity broadcast still works when a headset selector is available.";
+                : "Run guided setup or install the managed Quest tooling cache to read live Quest vrpowermanager proximity state. The direct ADB proximity broadcast still works when a headset selector is available.";
             ProximityEvidenceLabel = "Latest readback unavailable because hzdb is not available.";
             return;
         }
@@ -13057,7 +13057,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             QuestScreenshotLevel = OperationOutcomeKind.Preview;
             QuestScreenshotSummary = "Quest screenshot capture unavailable.";
-            QuestScreenshotDetail = "Run guided setup or install the official Quest tooling cache before using Quest screenshot capture.";
+            QuestScreenshotDetail = "Run guided setup or install the managed Quest tooling cache before using Quest screenshot capture.";
             return;
         }
 

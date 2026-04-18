@@ -402,6 +402,17 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                 OfficialQuestToolingLayout.PlatformToolsDirectoryPath,
                 "https://example.invalid/platform-tools",
                 "Test license",
+                "https://example.invalid/license"),
+            new OfficialQuestToolStatus(
+                "scrcpy",
+                "scrcpy",
+                isReady,
+                isReady ? "3.3.4" : null,
+                "3.3.4",
+                !isReady,
+                OfficialQuestToolingLayout.ScrcpyExecutablePath,
+                "https://example.invalid/scrcpy",
+                "Apache License 2.0",
                 "https://example.invalid/license"));
 
     private static IReadOnlyList<WindowsNetworkAdapterSnapshot> SinglePhysicalAdapter()
