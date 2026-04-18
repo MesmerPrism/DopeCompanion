@@ -18,6 +18,7 @@ $previewIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Pr
 $publishedIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Published\dope-companion.ico'
 $publishedLauncherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.vbs'
 $devLauncherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App-Local.vbs'
+$repoLocalBuildRoot = Join-Path $repoRoot 'src\DopeCompanion.App\bin'
 $scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
 $windowsExplorer = Join-Path $env:SystemRoot 'explorer.exe'
 
@@ -182,7 +183,8 @@ try {
         $_.Name -notin @($PreviewShortcutName, $PublishedShortcutName, $DevShortcutName) -and
         (
             ($_.TargetPath -eq $windowsExplorer -and $_.Arguments -like 'shell:AppsFolder\*!App') -or
-            ($_.TargetPath -eq $scriptHost -and ($_.Arguments -like '*Start-Desktop-App.vbs*' -or $_.Arguments -like '*Start-Desktop-App-Local.vbs*'))
+            ($_.TargetPath -eq $scriptHost -and ($_.Arguments -like '*Start-Desktop-App.vbs*' -or $_.Arguments -like '*Start-Desktop-App-Local.vbs*')) -or
+            ($_.TargetPath -like "$repoLocalBuildRoot*" -and $_.TargetPath -like '*\DopeCompanion.exe')
         )
     } | ForEach-Object {
         if (Test-Path $_.Path) {
