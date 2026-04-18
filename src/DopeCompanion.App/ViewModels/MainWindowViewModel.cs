@@ -183,6 +183,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _diagnosticsReportTimestampLabel = "Not generated yet.";
     private string _diagnosticsReportFolderPath = string.Empty;
     private string _diagnosticsReportPdfPath = string.Empty;
+    private string _localAgentWorkspaceDetail = "The local agent workspace will be prepared automatically on startup. Open this host-visible workspace to mirror the bundled CLI, docs, and sample catalogs out of WindowsApps for local-agent or terminal use.";
+    private OperationOutcomeKind _fullDiagnosticHarnessLevel = OperationOutcomeKind.Preview;
+    private string _fullDiagnosticHarnessSummary = "No full DOPE diagnostic harness has been run yet.";
+    private string _fullDiagnosticHarnessDetail = "Run the full harness to exercise tooling, Quest connection, install, baseline scene staging, launch, and the shareable report bundle from one action.";
+    private string _fullDiagnosticHarnessTimestampLabel = "Not run yet.";
+    private string _fullDiagnosticHarnessBundlePath = string.Empty;
+    private string _fullDiagnosticHarnessFolderPath = string.Empty;
     private OperationOutcomeKind _liveSessionCastLevel = OperationOutcomeKind.Preview;
     private string _liveSessionCastSummary = "Display 0 cast idle.";
     private string _liveSessionCastDetail = "Start the cast to open Display 0 in a separate scrcpy window.";
@@ -269,8 +276,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RefreshDeviceProfileDiagnosticsCommand = new AsyncRelayCommand(RefreshDeviceProfileDiagnosticsAsync);
         RefreshWifiRouterDiagnosticsCommand = new AsyncRelayCommand(RefreshWifiRouterDiagnosticsAsync);
         GenerateDiagnosticsReportCommand = new AsyncRelayCommand(GenerateDiagnosticsReportAsync);
+        RunFullDiagnosticHarnessCommand = new AsyncRelayCommand(RunFullDiagnosticHarnessAsync);
         OpenDiagnosticsReportFolderCommand = new AsyncRelayCommand(OpenDiagnosticsReportFolderAsync);
         OpenDiagnosticsReportPdfCommand = new AsyncRelayCommand(OpenDiagnosticsReportPdfAsync);
+        OpenFullDiagnosticHarnessFolderCommand = new AsyncRelayCommand(OpenFullDiagnosticHarnessFolderAsync);
+        OpenFullDiagnosticHarnessBundleCommand = new AsyncRelayCommand(OpenFullDiagnosticHarnessBundleAsync);
         OpenLocalAgentWorkspaceCommand = new AsyncRelayCommand(OpenLocalAgentWorkspaceAsync);
         OpenLiveSessionWindowCommand = new AsyncRelayCommand(OpenLiveSessionWindowAsync);
         ToggleLiveSessionProximityCommand = new AsyncRelayCommand(ToggleLiveSessionProximityAsync);
@@ -280,6 +290,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RefreshDopeParticleTuningState();
         RefreshLiveSessionEditors();
         RefreshLiveSessionCastState();
+        _ = EnsureLocalAgentWorkspaceReadyOnStartupAsync();
     }
 
     public ObservableCollection<QuestAppTarget> Apps { get; } = new();
@@ -503,9 +514,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public AsyncRelayCommand GenerateDiagnosticsReportCommand { get; }
 
+    public AsyncRelayCommand RunFullDiagnosticHarnessCommand { get; }
+
     public AsyncRelayCommand OpenDiagnosticsReportFolderCommand { get; }
 
     public AsyncRelayCommand OpenDiagnosticsReportPdfCommand { get; }
+
+    public AsyncRelayCommand OpenFullDiagnosticHarnessFolderCommand { get; }
+
+    public AsyncRelayCommand OpenFullDiagnosticHarnessBundleCommand { get; }
 
     public AsyncRelayCommand OpenLocalAgentWorkspaceCommand { get; }
 
@@ -971,7 +988,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string LocalAgentWorkspacePath => _localAgentWorkspaceService.RootPath;
 
     public string LocalAgentWorkspaceDetail
-        => "Open this host-visible workspace to mirror the bundled CLI, docs, and sample catalogs out of WindowsApps for local-agent or terminal use.";
+    {
+        get => _localAgentWorkspaceDetail;
+        private set => SetProperty(ref _localAgentWorkspaceDetail, value);
+    }
 
     public string BundledCliExportPath => LocalAgentWorkspaceLayout.BundledCliExecutablePath;
 
@@ -1103,6 +1123,60 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public bool CanOpenDiagnosticsReportPdf
         => CompanionOperatorDataLayout.TryResolveExistingFile(DiagnosticsReportPdfPath, out _);
+
+    public OperationOutcomeKind FullDiagnosticHarnessLevel
+    {
+        get => _fullDiagnosticHarnessLevel;
+        private set => SetProperty(ref _fullDiagnosticHarnessLevel, value);
+    }
+
+    public string FullDiagnosticHarnessSummary
+    {
+        get => _fullDiagnosticHarnessSummary;
+        private set => SetProperty(ref _fullDiagnosticHarnessSummary, value);
+    }
+
+    public string FullDiagnosticHarnessDetail
+    {
+        get => _fullDiagnosticHarnessDetail;
+        private set => SetProperty(ref _fullDiagnosticHarnessDetail, value);
+    }
+
+    public string FullDiagnosticHarnessTimestampLabel
+    {
+        get => _fullDiagnosticHarnessTimestampLabel;
+        private set => SetProperty(ref _fullDiagnosticHarnessTimestampLabel, value);
+    }
+
+    public string FullDiagnosticHarnessBundlePath
+    {
+        get => _fullDiagnosticHarnessBundlePath;
+        private set
+        {
+            if (SetProperty(ref _fullDiagnosticHarnessBundlePath, NormalizeHostVisibleOperatorPath(value)))
+            {
+                OnPropertyChanged(nameof(CanOpenFullDiagnosticHarnessBundle));
+            }
+        }
+    }
+
+    public string FullDiagnosticHarnessFolderPath
+    {
+        get => _fullDiagnosticHarnessFolderPath;
+        private set
+        {
+            if (SetProperty(ref _fullDiagnosticHarnessFolderPath, NormalizeHostVisibleOperatorPath(value)))
+            {
+                OnPropertyChanged(nameof(CanOpenFullDiagnosticHarnessFolder));
+            }
+        }
+    }
+
+    public bool CanOpenFullDiagnosticHarnessBundle
+        => CompanionOperatorDataLayout.TryResolveExistingFile(FullDiagnosticHarnessBundlePath, out _);
+
+    public bool CanOpenFullDiagnosticHarnessFolder
+        => CompanionOperatorDataLayout.TryResolveExistingDirectory(FullDiagnosticHarnessFolderPath, out _);
 
     public string MonitorValueLabel => $"{MonitorValue:0.000}";
 
@@ -2556,6 +2630,124 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 Items: [result.PdfPath, result.TexPath, result.JsonPath, result.ReportDirectory])).ConfigureAwait(false);
     }
 
+    private async Task RunFullDiagnosticHarnessAsync()
+    {
+        var (study, includeLslTwinChecks) = ResolveDiagnosticsStudyContext();
+        if (study is null)
+        {
+            await ApplyOutcomeAsync(
+                "Run Full Diagnostic Harness",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Full diagnostic harness generation is blocked.",
+                    "The public diagnostics catalog did not expose the projected-feed Colorama scene definition needed to run the harness.")).ConfigureAwait(false);
+            return;
+        }
+
+        var sceneProfile = ResolveFullDiagnosticHarnessSceneProfile(study.App.PackageId);
+        await DispatchAsync(() =>
+        {
+            FullDiagnosticHarnessLevel = OperationOutcomeKind.Preview;
+            FullDiagnosticHarnessSummary = "Running the full DOPE diagnostic harness...";
+            FullDiagnosticHarnessDetail = "Refreshing managed tooling if needed, connecting Quest, reinstalling the pinned APK, staging the baseline scene profile, launching the runtime, and generating the shareable bundle.";
+            FullDiagnosticHarnessTimestampLabel = $"Started {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+        }).ConfigureAwait(false);
+
+        DopeFullDiagnosticHarnessResult result;
+        try
+        {
+            var harnessService = new DopeFullDiagnosticHarnessService(
+                _questService,
+                _hzdbService,
+                _windowsEnvironmentAnalysisService,
+                _lslStreamDiscoveryService,
+                _testLslSignalService,
+                _twinBridge);
+            result = await harnessService
+                .GenerateAsync(
+                    new DopeFullDiagnosticHarnessRequest(
+                        study,
+                        SceneProfile: sceneProfile,
+                        DeviceSelector: ResolveHeadsetActionSelector(),
+                        OperatorBuildSummary: AppBuildIdentity.Current.Summary,
+                        PdfScriptPath: TryResolveDiagnosticsPdfScriptPath(),
+                        ProbeWaitDuration: TimeSpan.FromSeconds(12),
+                        IncludeLslTwinChecks: includeLslTwinChecks),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() =>
+            {
+                FullDiagnosticHarnessLevel = OperationOutcomeKind.Failure;
+                FullDiagnosticHarnessSummary = "Full DOPE diagnostic harness failed.";
+                FullDiagnosticHarnessDetail = exception.Message;
+                FullDiagnosticHarnessTimestampLabel = $"Failed {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                "Run Full Diagnostic Harness",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Full DOPE diagnostic harness failed.",
+                    exception.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() =>
+        {
+            FullDiagnosticHarnessLevel = result.Level;
+            FullDiagnosticHarnessSummary = result.Summary;
+            FullDiagnosticHarnessDetail = $"{result.Detail} Bundle: {NormalizeHostVisibleOperatorPath(result.BundlePath)}";
+            FullDiagnosticHarnessTimestampLabel = $"Generated {result.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+            FullDiagnosticHarnessBundlePath = result.BundlePath;
+            FullDiagnosticHarnessFolderPath = result.ReportDirectory;
+
+            if (result.DiagnosticsReportResult is not null)
+            {
+                ApplyWindowsEnvironmentAnalysisResult(result.DiagnosticsReportResult.Report.WindowsEnvironment);
+                ApplyWifiRouterDiagnosticsResult(result.DiagnosticsReportResult.Report.QuestWifiTransport);
+                DiagnosticsReportLevel = result.DiagnosticsPdfLevel == OperationOutcomeKind.Warning &&
+                                         result.DiagnosticsReportResult.Level == OperationOutcomeKind.Success
+                    ? OperationOutcomeKind.Warning
+                    : result.DiagnosticsReportResult.Level;
+                DiagnosticsReportSummary = result.DiagnosticsReportResult.Summary;
+                DiagnosticsReportDetail = $"{result.DiagnosticsReportResult.Detail} PDF: {result.DiagnosticsPdfSummary} {result.DiagnosticsPdfDetail}".Trim();
+                DiagnosticsReportTimestampLabel = $"Generated {result.DiagnosticsReportResult.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+                DiagnosticsReportFolderPath = result.ReportDirectory;
+                DiagnosticsReportPdfPath = result.DiagnosticsPdfPath;
+            }
+        }).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(result.DeviceSelector))
+        {
+            await DispatchAsync(() =>
+            {
+                EndpointDraft = result.DeviceSelector;
+                ConnectionSummary = $"Harness last used Quest selector: {result.DeviceSelector}.";
+            }).ConfigureAwait(false);
+
+            if (result.DeviceSelector.Contains(':', StringComparison.Ordinal))
+            {
+                SaveSession(endpoint: result.DeviceSelector);
+            }
+            else
+            {
+                SaveSession(usbSerial: result.DeviceSelector);
+            }
+        }
+
+        await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+        await ApplyOutcomeAsync(
+            "Run Full Diagnostic Harness",
+            new OperationOutcome(
+                result.Level,
+                result.Summary,
+                result.Detail,
+                Items: [result.BundlePath, result.SummaryTextPath, result.SummaryJsonPath, result.DiagnosticsPdfPath, result.DiagnosticsJsonPath, result.DiagnosticsTexPath])).ConfigureAwait(false);
+    }
+
     private WindowsEnvironmentAnalysisRequest BuildWindowsEnvironmentAnalysisRequest()
     {
         var (diagnosticsStudy, includeLslTwinChecks) = ResolveDiagnosticsStudyContext();
@@ -2653,15 +2845,40 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             unavailableDetail: "Generate the diagnostics report first so the shareable PDF exists.").ConfigureAwait(false);
     }
 
+    private async Task OpenFullDiagnosticHarnessFolderAsync()
+    {
+        await OpenOperatorPathAsync(
+            FullDiagnosticHarnessFolderPath,
+            isDirectory: true,
+            actionLabel: "Open Full Diagnostic Harness Folder",
+            unavailableSummary: "Full diagnostic harness folder is not available yet.",
+            unavailableDetail: "Run the full diagnostic harness first so the shareable bundle and report files exist.").ConfigureAwait(false);
+    }
+
+    private async Task OpenFullDiagnosticHarnessBundleAsync()
+    {
+        await OpenOperatorPathAsync(
+            FullDiagnosticHarnessBundlePath,
+            isDirectory: false,
+            actionLabel: "Open Full Diagnostic Harness Bundle",
+            unavailableSummary: "Full diagnostic harness bundle is not available yet.",
+            unavailableDetail: "Run the full diagnostic harness first so the shareable bundle exists.").ConfigureAwait(false);
+    }
+
     private async Task OpenLocalAgentWorkspaceAsync()
     {
         LocalAgentWorkspaceSnapshot snapshot;
         try
         {
             snapshot = await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+            await _dispatcher.InvokeAsync(() => UpdateLocalAgentWorkspaceDetail(snapshot, "Local agent workspace")).Task.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            await _dispatcher.InvokeAsync(() =>
+            {
+                LocalAgentWorkspaceDetail = $"Local agent workspace export failed. Open Agent Workspace can retry the mirror when the packaged CLI and sample catalog source paths are available. Last error: {ex.Message}";
+            }).Task.ConfigureAwait(false);
             await ApplyOutcomeAsync(
                 "Open Local Agent Workspace",
                 new OperationOutcome(
@@ -2701,6 +2918,29 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     ex.Message,
                     Items: [snapshot.RootPath])).ConfigureAwait(false);
         }
+    }
+
+    private async Task EnsureLocalAgentWorkspaceReadyOnStartupAsync()
+    {
+        try
+        {
+            var snapshot = await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+            await _dispatcher.InvokeAsync(() => UpdateLocalAgentWorkspaceDetail(snapshot, "Startup-prepared")).Task.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await _dispatcher.InvokeAsync(() =>
+            {
+                LocalAgentWorkspaceDetail = $"Automatic local agent workspace export did not complete on startup. Use Open Agent Workspace to retry the mirror when you need the bundled CLI outside WindowsApps. Last error: {ex.Message}";
+            }).Task.ConfigureAwait(false);
+        }
+    }
+
+    private void UpdateLocalAgentWorkspaceDetail(LocalAgentWorkspaceSnapshot snapshot, string sourceLabel)
+    {
+        LocalAgentWorkspaceDetail = snapshot.HasBundledCli
+            ? $"{sourceLabel} workspace ready. The bundled CLI, docs, bundled APK, and support catalogs are mirrored under {snapshot.RootPath} for terminal use outside WindowsApps."
+            : $"{sourceLabel} workspace ready, but the bundled CLI payload could not be mirrored. The docs and support catalogs are available under {snapshot.RootPath}; fetch the CLI zip if you need terminal control on this machine.";
     }
 
     private async Task OpenLiveSessionWindowAsync()
@@ -3674,6 +3914,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private DeviceProfile? ResolveDiagnosticsDeviceProfile()
         => SelectedDeviceProfile ?? (ResolveDiagnosticsStudyDefinition() is { } study ? StudyShellOperatorBindings.CreateDeviceProfile(study) : null);
+
+    private HotloadProfile? ResolveFullDiagnosticHarnessSceneProfile(string packageId)
+        => _hotloadProfiles.FirstOrDefault(profile =>
+               string.Equals(profile.Id, DopeFullDiagnosticHarnessService.DefaultBaselineSceneProfileId, StringComparison.OrdinalIgnoreCase)
+               && profile.MatchesPackage(packageId))
+           ?? _hotloadProfiles.FirstOrDefault(profile => profile.MatchesPackage(packageId));
 
     private string ResolveHeadsetActionSelector()
     {

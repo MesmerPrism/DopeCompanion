@@ -2499,6 +2499,8 @@
                                                 Command="{Binding RefreshDeviceProfileDiagnosticsCommand}" />
                                         <Button Content="Generate Diagnostics Report"
                                                 Command="{Binding GenerateDiagnosticsReportCommand}" />
+                                        <Button Content="Run Full Diagnostic Harness"
+                                                Command="{Binding RunFullDiagnosticHarnessCommand}" />
                                         <Button Content="Open Agent Workspace"
                                                 Command="{Binding OpenLocalAgentWorkspaceCommand}" />
                                     </WrapPanel>
@@ -2534,6 +2536,44 @@
                                     <TextBlock Text="{Binding BundledCliExportPath}"
                                                Style="{StaticResource InspectorKeyStyle}"
                                                Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PanelBorderStyle}"
+                                    Margin="0,16,0,0"
+                                    Background="{Binding FullDiagnosticHarnessLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding FullDiagnosticHarnessLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Full Diagnostic Harness" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="This runs the public guided-install acceptance path end-to-end: managed tooling, Quest connect, APK reinstall, baseline scene staging, launch, and the shareable bundle."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <TextBlock Text="{Binding FullDiagnosticHarnessSummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding FullDiagnosticHarnessLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding FullDiagnosticHarnessTimestampLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding FullDiagnosticHarnessDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding FullDiagnosticHarnessBundlePath}"
+                                               Style="{StaticResource InspectorKeyStyle}"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Content="Run Full Harness"
+                                                Command="{Binding RunFullDiagnosticHarnessCommand}" />
+                                        <Button Content="Open Harness Folder"
+                                                Command="{Binding OpenFullDiagnosticHarnessFolderCommand}"
+                                                IsEnabled="{Binding CanOpenFullDiagnosticHarnessFolder}" />
+                                        <Button Content="Open Harness Bundle"
+                                                Command="{Binding OpenFullDiagnosticHarnessBundleCommand}"
+                                                IsEnabled="{Binding CanOpenFullDiagnosticHarnessBundle}" />
+                                    </WrapPanel>
                                 </StackPanel>
                             </Border>
 

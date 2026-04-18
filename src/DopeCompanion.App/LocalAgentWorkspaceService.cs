@@ -129,10 +129,12 @@ internal sealed class LocalAgentWorkspaceService
             return;
         }
 
+        var destinationRoot = Path.Combine(_workspaceRoot, "cli", "current");
         MirrorDirectorySubset(
             _bundledCliRoot,
-            Path.Combine(_workspaceRoot, "cli", "current"),
+            destinationRoot,
             _ => true);
+        EnsureBundledCliLslRuntime(destinationRoot);
     }
 
     private void MirrorQuestSessionKit()
@@ -150,7 +152,8 @@ internal sealed class LocalAgentWorkspaceService
                 var normalized = NormalizeRelativePath(relativePath);
                 return string.Equals(normalized, "README.md", StringComparison.OrdinalIgnoreCase)
                        || (normalized.StartsWith("APKs/", StringComparison.OrdinalIgnoreCase)
-                           && normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                           && (normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                               || normalized.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)))
                        || normalized.StartsWith("DeviceProfiles/", StringComparison.OrdinalIgnoreCase)
                        || normalized.StartsWith("HotloadProfiles/", StringComparison.OrdinalIgnoreCase)
                        || normalized.StartsWith("LlmTuningProfiles/", StringComparison.OrdinalIgnoreCase);
@@ -223,6 +226,22 @@ internal sealed class LocalAgentWorkspaceService
         File.SetLastWriteTimeUtc(destinationPath, sourceInfo.LastWriteTimeUtc);
     }
 
+    private void EnsureBundledCliLslRuntime(string bundledCliDestinationRoot)
+    {
+        var sourceLslPath = ResolveBundledCliLslSourcePath();
+        if (string.IsNullOrWhiteSpace(sourceLslPath) || !File.Exists(sourceLslPath))
+        {
+            return;
+        }
+
+        MirrorFileIfExists(sourceLslPath, LslRuntimeLayout.GetLocalDllPath(bundledCliDestinationRoot));
+        MirrorFileIfExists(sourceLslPath, LslRuntimeLayout.GetRuntimeDllPath(bundledCliDestinationRoot));
+    }
+
+    private string? ResolveBundledCliLslSourcePath()
+        => LslRuntimeLayout.TryResolveExistingLocalPath(_bundledCliRoot ?? string.Empty)
+           ?? LslRuntimeLayout.TryResolveExistingLocalPath(AppContext.BaseDirectory);
+
     private static void WriteTextFile(string path, string contents)
     {
         var directory = Path.GetDirectoryName(path);
@@ -280,7 +299,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("- `agent-env.ps1` and `agent-env.cmd` are available if you want a whole shell session to inherit the same sample-root overrides.");
         builder.AppendLine("- `tooling status` reports the managed Quest tool cache (`hzdb`, Android platform-tools, and scrcpy). Use `windows-env analyze` for liblsl and live-stream diagnostics.");
         builder.AppendLine("- The wrappers also set `DOPE_OPERATOR_DATA_ROOT` so the bundled CLI keeps using the same host-visible operator-data root as the desktop app; see `LOCAL_PATHS.md`.");
-        builder.AppendLine("- This workspace intentionally mirrors docs, manifests, device profiles, hotload profiles, tuning templates, and the bundled CLI without duplicating the bundled Dope APK.");
+        builder.AppendLine("- This workspace mirrors the bundled public DOPE APK as well as the docs, manifests, profiles, tuning templates, and bundled CLI, so install-capable harness commands can run outside the protected WindowsApps path.");
         return builder.ToString();
     }
 
@@ -461,12 +480,13 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("- `.\\dope-companion.ps1 study --help`");
         builder.AppendLine("- `.\\dope-companion.ps1 study probe-connection dope-projected-feed-colorama`");
         builder.AppendLine("- `.\\dope-companion.ps1 study diagnostics-report dope-projected-feed-colorama --wait-seconds 15`");
+        builder.AppendLine("- `.\\dope-companion.ps1 study run-harness dope-projected-feed-colorama`");
         builder.AppendLine("- `.\\dope-companion.ps1 dope --help`");
         builder.AppendLine("- `.\\dope-companion.ps1 hzdb --help`");
         builder.AppendLine("- `.\\dope-companion.ps1 tooling status`");
         builder.AppendLine();
         builder.AppendLine("The wrapper script preloads the mirrored sample-root overrides and the bundled liblsl path before invoking the bundled CLI under `cli/current`.");
-        builder.AppendLine("`tooling status` reports the managed Quest tool cache. Use `windows-env analyze` for liblsl and expected-stream diagnostics, or `study diagnostics-report dope-projected-feed-colorama` when you need one shareable LSL/twin report folder.");
+        builder.AppendLine("`tooling status` reports the managed Quest tool cache. Use `windows-env analyze` for liblsl and expected-stream diagnostics, `study diagnostics-report dope-projected-feed-colorama` when you need one shareable LSL/twin report folder, or `study run-harness dope-projected-feed-colorama` when you want the app install/profile/launch path exercised first.");
         builder.AppendLine("If the wrapper reports that the bundled CLI is unavailable, say that clearly and reason from the mirrored docs and examples instead of assuming repo source is available.");
         builder.AppendLine();
         builder.AppendLine("In your explanation, cover:");

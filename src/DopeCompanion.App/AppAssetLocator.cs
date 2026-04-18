@@ -70,8 +70,8 @@ internal static class AppAssetLocator
             Environment.GetEnvironmentVariable("DOPE_BUNDLED_CLI_ROOT"),
             Path.Combine(AppContext.BaseDirectory, "cli", "current"),
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "cli-win-x64")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "DopeCompanion.Cli", "bin", "Debug", "net10.0")),
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "DopeCompanion.Cli", "bin", "Release", "net10.0")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "DopeCompanion.Cli", "bin", "Debug", "net10.0")),
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "source",
@@ -87,7 +87,7 @@ internal static class AppAssetLocator
                 "src",
                 "DopeCompanion.Cli",
                 "bin",
-                "Debug",
+                "Release",
                 "net10.0"),
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -97,7 +97,7 @@ internal static class AppAssetLocator
                 "src",
                 "DopeCompanion.Cli",
                 "bin",
-                "Release",
+                "Debug",
                 "net10.0"));
 
     public static string? TryResolveDopeParticleSizeTemplatePath()

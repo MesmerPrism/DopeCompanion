@@ -23,6 +23,7 @@ For this repo, the CLI is useful for:
 - catalog inspection
 - simple LSL monitor and twin-command probes
 - managed Quest tooling installation and status checks
+- one-shot public install-and-diagnostics harness runs with shareable bundles
 
 The public DOPE line does **not** currently ship a separate locked study-shell
 workflow. The inherited `study` and Dope-specific command families may still
@@ -35,6 +36,14 @@ From a source checkout:
 
 ```powershell
 dotnet run --project src/DopeCompanion.Cli -- <command> [options]
+```
+
+From the guided installer:
+
+```powershell
+# Launch the packaged app once so it prepares the local agent workspace,
+# then open Windows Environment -> Open Agent Workspace.
+.\dope-companion.ps1 --help
 ```
 
 Or install as a local/global tool:
@@ -107,6 +116,7 @@ Defaults:
 | `tooling status` | Show the local managed Quest tooling cache state |
 | `tooling install-official` | Install or update managed `hzdb`, Android platform-tools, and `scrcpy` |
 | `windows-env analyze` | Check Windows-side `adb`, `hzdb`, liblsl, and common network hazards |
+| `study run-harness <study>` | Reinstall the pinned APK, apply the device profile and baseline scene profile, launch the app, and write a shareable harness bundle |
 
 ## Current DOPE Workflow
 
@@ -123,6 +133,24 @@ dope-companion launch com.tillh.dynamicoscillatorypatternentrainment
 dope-companion hotload list
 dope-companion hotload push dope_projected_feed_colorama_balanced_gradient
 ```
+
+When you need one autonomous public acceptance run that exercises the same
+install/profile/launch path the guided installer ships:
+
+```powershell
+dope-companion study run-harness dope-projected-feed-colorama
+```
+
+That command will:
+
+- verify or install the managed Quest tooling cache when needed
+- connect to the headset from the current selector, a remembered Wi-Fi endpoint,
+  or USB bootstrap
+- reinstall the pinned bundled APK
+- apply the pinned Quest device profile
+- stage the bundled baseline projected-feed Colorama scene profile
+- launch the public DOPE runtime
+- generate a shareable harness bundle with JSON, LaTeX, PDF, and summary files
 
 If you want to inspect the separate LSL twin lane after the Unity runtime gains
 that bridge:
@@ -150,6 +178,9 @@ The important environment variables for this repo are:
 
 - `windows-env analyze` is the best first machine-level check when LSL or Wi-Fi
   ADB behavior looks wrong.
+- `study run-harness dope-projected-feed-colorama` is the fastest way to
+  generate one shareable file for remote support after the guided installer
+  path is already on the machine.
 - The bundled public DOPE APK is currently the install and launch source of
   truth.
 - The bundled projected-feed runtime consumes the staged hotload CSVs from this

@@ -67,10 +67,10 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "dope-companion.exe")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "cli.runtimeconfig.json")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "lsl.dll")));
+        Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "quest-session-kit", "APKs", "DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "quest-session-kit", "HotloadProfiles", "baseline.csv")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "study-shells", "dope-projected-feed-colorama", "visual-profiles", "baseline.json")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "oscillator-config", "llm-tuning", "dope-visual-tuning-v1.template.json")));
-        Assert.False(File.Exists(Path.Combine(workspaceRoot, "samples", "quest-session-kit", "APKs", "DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk")));
 
         var promptText = File.ReadAllText(snapshot.PromptPath);
         Assert.Contains("comprehensive explanation of what can be controlled from the CLI today", promptText, StringComparison.OrdinalIgnoreCase);
@@ -78,6 +78,7 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.Contains(".\\dope-companion.ps1 --help", promptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(".\\dope-companion.ps1 windows-env analyze", promptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(".\\dope-companion.ps1 study probe-connection dope-projected-feed-colorama", promptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(".\\dope-companion.ps1 study run-harness dope-projected-feed-colorama", promptText, StringComparison.OrdinalIgnoreCase);
 
         var envScript = File.ReadAllText(snapshot.PowerShellEnvScriptPath);
         Assert.Contains("DOPE_QUEST_SESSION_KIT_ROOT", envScript, StringComparison.OrdinalIgnoreCase);
@@ -89,6 +90,63 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.Contains("dope-companion.exe", wrapperScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DOPE_STUDY_SHELL_ROOT", wrapperScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DOPE_LSL_DLL", wrapperScript, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EnsureWorkspace_BackfillsBundledLslFromAppRuntimeWhenCliPayloadDoesNotContainIt()
+    {
+        var docsRoot = CreateDirectory("docs");
+        var cliRoot = CreateDirectory(Path.Combine("cli-missing-lsl", "current"));
+        var questRoot = CreateDirectory(Path.Combine("samples", "quest-session-kit"));
+        var studyRoot = CreateDirectory(Path.Combine("samples", "study-shells"));
+        var oscillatorRoot = CreateDirectory(Path.Combine("samples", "oscillator-config"));
+        var workspaceRoot = Path.Combine(_tempRoot, "agent-workspace-no-lsl");
+
+        WriteFile(Path.Combine(docsRoot, "cli.md"), "# CLI");
+        WriteFile(Path.Combine(docsRoot, "study-shells.md"), "# Study Shells");
+        WriteFile(Path.Combine(docsRoot, "monitoring-and-control.md"), "# Monitoring");
+        WriteFile(Path.Combine(cliRoot, "dope-companion.exe"), "stub-cli");
+        WriteFile(Path.Combine(questRoot, "README.md"), "# Session Kit");
+        WriteFile(Path.Combine(studyRoot, "dope-projected-feed-colorama.json"), "{}");
+        WriteFile(Path.Combine(oscillatorRoot, "README.md"), "# Oscillator");
+
+        var appRuntimeLslPath = Path.Combine(AppContext.BaseDirectory, "runtimes", "win-x64", "native", "lsl.dll");
+        var appRuntimeDirectory = Path.GetDirectoryName(appRuntimeLslPath)!;
+        var hadExistingAppRuntimeLsl = File.Exists(appRuntimeLslPath);
+        var previousAppRuntimeBytes = hadExistingAppRuntimeLsl ? File.ReadAllBytes(appRuntimeLslPath) : null;
+
+        try
+        {
+            Directory.CreateDirectory(appRuntimeDirectory);
+            File.WriteAllText(appRuntimeLslPath, "app-runtime-lsl");
+
+            var service = new LocalAgentWorkspaceService(
+                workspaceRoot: workspaceRoot,
+                docsRoot: docsRoot,
+                bundledCliRoot: cliRoot,
+                questSessionKitRoot: questRoot,
+                studyShellRoot: studyRoot,
+                oscillatorConfigRoot: oscillatorRoot);
+
+            service.EnsureWorkspace();
+
+            Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "lsl.dll")));
+            Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "runtimes", "win-x64", "native", "lsl.dll")));
+            Assert.Equal(
+                "app-runtime-lsl",
+                File.ReadAllText(Path.Combine(workspaceRoot, "cli", "current", "lsl.dll")));
+        }
+        finally
+        {
+            if (hadExistingAppRuntimeLsl && previousAppRuntimeBytes is not null)
+            {
+                File.WriteAllBytes(appRuntimeLslPath, previousAppRuntimeBytes);
+            }
+            else if (File.Exists(appRuntimeLslPath))
+            {
+                File.Delete(appRuntimeLslPath);
+            }
+        }
     }
 
     public void Dispose()

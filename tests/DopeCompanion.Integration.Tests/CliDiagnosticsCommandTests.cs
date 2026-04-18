@@ -36,6 +36,17 @@ public sealed class CliDiagnosticsCommandTests
         Assert.Contains("--no-pdf", help, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Study_run_harness_help_is_exposed()
+    {
+        var help = await InvokeCliAsync("study", "run-harness", "--help");
+
+        Assert.Contains("install/launch diagnostics harness", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--scene-profile", help, StringComparison.Ordinal);
+        Assert.Contains("--skip-tooling-ensure", help, StringComparison.Ordinal);
+        Assert.Contains("--no-pdf", help, StringComparison.Ordinal);
+    }
+
     private static async Task<string> InvokeCliAsync(params string[] args)
     {
         await CliConsoleTestGate.Instance.WaitAsync();

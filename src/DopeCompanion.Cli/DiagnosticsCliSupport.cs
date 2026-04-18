@@ -185,6 +185,42 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine($"Generated at:        {result.CompletedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}");
     }
 
+    internal static void PrintFullDiagnosticHarness(DopeFullDiagnosticHarnessResult result)
+    {
+        Console.WriteLine($"[{RenderLevel(result.Level)}] {result.Summary}");
+        Console.WriteLine(result.Detail);
+        Console.WriteLine();
+        Console.WriteLine($"Bundle:              {result.BundlePath}");
+        Console.WriteLine($"Harness summary:     {result.SummaryTextPath}");
+        Console.WriteLine($"Harness JSON:        {result.SummaryJsonPath}");
+        Console.WriteLine($"Diagnostics JSON:    {result.DiagnosticsJsonPath}");
+        Console.WriteLine($"Diagnostics LaTeX:   {result.DiagnosticsTexPath}");
+        Console.WriteLine($"Diagnostics PDF:     {result.DiagnosticsPdfPath}");
+        Console.WriteLine($"PDF status:          [{RenderLevel(result.DiagnosticsPdfLevel)}] {result.DiagnosticsPdfSummary}");
+        if (!string.IsNullOrWhiteSpace(result.DiagnosticsPdfDetail))
+        {
+            Console.WriteLine($"                     {result.DiagnosticsPdfDetail}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.QuestScreenshotPath))
+        {
+            Console.WriteLine($"Quest screenshot:    {result.QuestScreenshotPath}");
+        }
+
+        Console.WriteLine($"Selector:            {result.DeviceSelector}");
+        Console.WriteLine($"Generated at:        {result.CompletedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}");
+        Console.WriteLine();
+        Console.WriteLine("Steps:");
+        foreach (var step in result.Steps)
+        {
+            Console.WriteLine($"  [{RenderLevel(step.Level)}] {step.Label}: {step.Summary}");
+            if (!string.IsNullOrWhiteSpace(step.Detail))
+            {
+                Console.WriteLine($"      {step.Detail}");
+            }
+        }
+    }
+
     private static StudyConnectionProbeResult BuildStudyConnectionProbeState(
         StudyShellDefinition definition,
         HeadsetAppStatus headset,

@@ -41,6 +41,9 @@ Current status:
   section with the multi-layer quad controls
 - the bundled scene-profile CSV path is live in the Quest runtime and reports
   the active hotload profile in startup diagnostics
+- the packaged app and bundled CLI now expose a one-shot full diagnostic
+  harness that can reinstall the public APK, apply the baseline device and
+  scene profiles, relaunch the runtime, and emit a shareable diagnostics bundle
 - the live-session window now includes a public `Display 0` cast control that
   resizes cleanly by restarting the managed `scrcpy` session with the requested
   bounds

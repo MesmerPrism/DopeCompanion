@@ -718,6 +718,88 @@ public static class Program
             }
         });
 
+        var harnessJsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        var harnessWaitOption = new Option<int>("--wait-seconds", () => 12, "How long to wait for fresh quest_twin_state before classifying the return path.");
+        var harnessOutputOption = new Option<string?>("--output-dir", "Directory for the generated harness bundle. Defaults to the operator diagnostics folder.");
+        var harnessSceneProfileOption = new Option<string?>("--scene-profile", "Scene profile id or label to stage before launch. Defaults to the bundled projected-feed Colorama baseline.");
+        var harnessNoPdfOption = new Option<bool>("--no-pdf", "Write JSON and LaTeX only; skip PDF generation inside the harness.");
+        var harnessSkipToolingOption = new Option<bool>("--skip-tooling-ensure", "Skip the managed Quest tooling ensure step and use whatever is already installed locally.");
+        var runHarnessCommand = new Command("run-harness", "Run the public DOPE install/launch diagnostics harness and write a shareable bundle")
+        {
+            studyArg,
+            rootOption,
+            harnessJsonOption,
+            harnessWaitOption,
+            harnessOutputOption,
+            harnessSceneProfileOption,
+            harnessNoPdfOption,
+            harnessSkipToolingOption
+        };
+        runHarnessCommand.Handler = CommandHandler.Create(async (
+            string study,
+            string? root,
+            bool json,
+            int waitSeconds,
+            string? outputDir,
+            string? sceneProfile,
+            bool noPdf,
+            bool skipToolingEnsure,
+            string? device) =>
+        {
+            var diagnosticsContext = await ResolveDiagnosticsStudyContextAsync(study, root);
+            var definition = diagnosticsContext.Study;
+            var questService = CreateQuestService(device);
+            var hotloadProfile = await ResolveHarnessSceneProfileAsync(root, definition.App.PackageId, sceneProfile).ConfigureAwait(false);
+            using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
+            using var testSender = TestLslSignalServiceFactory.CreateDefault();
+            var streamDiscovery = LslStreamDiscoveryServiceFactory.CreateDefault();
+            var bridge = TwinModeBridgeFactory.CreateDefault();
+            try
+            {
+                var windowsEnvironment = new WindowsEnvironmentAnalysisService(
+                    CreateMonitorService(),
+                    streamDiscovery,
+                    clockAlignment,
+                    testSender,
+                    bridge);
+                var harnessService = new DopeFullDiagnosticHarnessService(
+                    questService,
+                    HzdbServiceFactory.CreateDefault(),
+                    windowsEnvironment,
+                    streamDiscovery,
+                    testSender,
+                    bridge);
+                var result = await harnessService.GenerateAsync(
+                        new DopeFullDiagnosticHarnessRequest(
+                            definition,
+                            SceneProfile: hotloadProfile,
+                            DeviceSelector: device,
+                            OutputDirectory: outputDir,
+                            OperatorBuildSummary: BuildCliOperatorBuildSummary(),
+                            PdfScriptPath: noPdf ? null : TryResolveDopeDiagnosticsPdfScriptPath(),
+                            ProbeWaitDuration: TimeSpan.FromSeconds(Math.Max(0, waitSeconds)),
+                            EnsureManagedTooling: !skipToolingEnsure,
+                            GeneratePdf: !noPdf,
+                            IncludeLslTwinChecks: diagnosticsContext.IncludeLslTwinChecks),
+                        cancellationToken: default)
+                    .ConfigureAwait(false);
+
+                SaveHarnessSelector(result.DeviceSelector);
+
+                if (json)
+                {
+                    DopeCliSupport.WriteJson(result);
+                    return;
+                }
+
+                DiagnosticsCliSupport.PrintFullDiagnosticHarness(result);
+            }
+            finally
+            {
+                (bridge as IDisposable)?.Dispose();
+            }
+        });
+
         studyCommand.AddCommand(listCommand);
         studyCommand.AddCommand(installCommand);
         studyCommand.AddCommand(profileCommand);
@@ -726,6 +808,7 @@ public static class Program
         studyCommand.AddCommand(statusCommand);
         studyCommand.AddCommand(probeConnectionCommand);
         studyCommand.AddCommand(diagnosticsReportCommand);
+        studyCommand.AddCommand(runHarnessCommand);
         return studyCommand;
     }
 
@@ -1793,6 +1876,38 @@ public static class Program
         return await loader.LoadMultipleAsync(candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
+    private static async Task<HotloadProfile?> ResolveHarnessSceneProfileAsync(
+        string? root,
+        string packageId,
+        string? sceneProfileToken)
+    {
+        var catalog = await LoadQuestSessionKitCatalogForDiagnosticsAsync(root).ConfigureAwait(false);
+        var matchingProfiles = catalog.HotloadProfiles
+            .Where(profile => profile.MatchesPackage(packageId))
+            .ToArray();
+        if (matchingProfiles.Length == 0)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sceneProfileToken))
+        {
+            var explicitMatch = matchingProfiles.FirstOrDefault(profile =>
+                string.Equals(profile.Id, sceneProfileToken.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profile.Label, sceneProfileToken.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (explicitMatch is not null)
+            {
+                return explicitMatch;
+            }
+
+            throw new InvalidOperationException($"Scene profile '{sceneProfileToken}' was not found for package {packageId}.");
+        }
+
+        return matchingProfiles.FirstOrDefault(profile =>
+                   string.Equals(profile.Id, DopeFullDiagnosticHarnessService.DefaultBaselineSceneProfileId, StringComparison.OrdinalIgnoreCase))
+               ?? matchingProfiles.FirstOrDefault();
+    }
+
     private static void PrintOutcome(OperationOutcome outcome)
     {
         var prefix = outcome.Kind switch
@@ -1817,6 +1932,20 @@ public static class Program
                 Console.WriteLine($"       - {item}");
             }
         }
+    }
+
+    private static void SaveHarnessSelector(string? selector)
+    {
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return;
+        }
+
+        var state = CliSessionState.Load();
+        state = selector.Contains(':', StringComparison.Ordinal)
+            ? state.WithEndpoint(selector)
+            : state.WithUsbSerial(selector);
+        state.Save();
     }
 
     private static void PrintToolingStatus(OfficialQuestToolingStatus status, bool includeUpstream)
@@ -1865,6 +1994,12 @@ public static class Program
         return CliAssetLocator.TryResolveStudyShellRoot()
             ?? throw new InvalidOperationException(
                 "No study shell catalog root found. Set DOPE_STUDY_SHELL_ROOT or use --root.");
+    }
+
+    private static string BuildCliOperatorBuildSummary()
+    {
+        var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown";
+        return $"DopeCompanion.Cli {version}";
     }
 }
 

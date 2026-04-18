@@ -52,6 +52,8 @@ the latest packaged preview has not been published yet.
       <li>Download <code>DopeCompanion-Preview-Setup.exe</code>.</li>
       <li>Let the helper trust the preview certificate and install or update the packaged app.</li>
       <li>Launch <code>DOPE Companion Preview</code> from the Start menu if Windows does not open it automatically.</li>
+      <li>After first launch, the app prepares a host-visible local agent workspace with the bundled CLI outside <code>WindowsApps</code>. Open <code>Windows Environment</code> if you want to inspect that path.</li>
+      <li>Open <code>Windows Environment</code> and run <code>Full Diagnostic Harness</code> when you need one shareable acceptance bundle for remote support.</li>
       <li>Continue with <a href="first-session.html">First Session</a>.</li>
     </ol>
   </section>
@@ -80,6 +82,28 @@ the latest packaged preview has not been published yet.
 - a Quest headset with developer mode enabled
 - one USB cable for the first ADB trust step
 - local admin approval for the preview certificate trust step
+
+## Guided Support Bundle
+
+The packaged app and bundled CLI now include a one-shot full diagnostic
+harness. Use it when you want the app to exercise the public path first instead
+of only reporting on the current state.
+
+- first-launch CLI prep:
+  launch the packaged app once, then use `Windows Environment` ->
+  `Open Agent Workspace` if you want Explorer to open the host-visible bundled
+  CLI export
+- desktop app path:
+  `Windows Environment` -> `Run Full Diagnostic Harness`
+- bundled CLI path:
+  `.\\dope-companion.ps1 study run-harness dope-projected-feed-colorama`
+- the harness tries to:
+  refresh missing managed Quest tooling, reconnect the headset, reinstall the
+  pinned public APK, apply the curated device profile, stage the baseline scene
+  profile, relaunch the runtime, and then generate a shareable zip bundle
+- the bundle includes:
+  a text summary, a JSON manifest, the structured diagnostics JSON/LaTeX/PDF,
+  and a Quest screenshot proof when capture succeeds
 
 ## Display Cast Dependency
 
