@@ -490,6 +490,10 @@
                                     Command="{Binding RefreshForegroundCommand}"
                                     Margin="0,0,10,0"
                                     Visibility="{Binding ShowOperatorHeaderUtilities, Converter={StaticResource BoolToVisibility}}" />
+                            <Button Content="Live Session Window"
+                                    Command="{Binding OpenLiveSessionWindowCommand}"
+                                    Margin="0,0,10,0"
+                                    Visibility="{Binding ShowOperatorHeaderUtilities, Converter={StaticResource BoolToVisibility}}" />
                             <Button Content="{Binding StandardHeaderToggleLabel}"
                                     Command="{Binding ToggleStandardHeaderCommand}"
                                     MinWidth="118" />

@@ -239,6 +239,24 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
         RebuildSections();
     }
 
+    public IReadOnlyList<ConfigSettingRowViewModel> GetRowsByKeys(IEnumerable<string> keys)
+    {
+        var lookup = Sections
+            .SelectMany(section => section.Rows)
+            .ToDictionary(row => row.Key, StringComparer.OrdinalIgnoreCase);
+
+        var rows = new List<ConfigSettingRowViewModel>();
+        foreach (var key in keys)
+        {
+            if (lookup.TryGetValue(key, out var row))
+            {
+                rows.Add(row);
+            }
+        }
+
+        return rows;
+    }
+
     public RuntimeConfigProfile BuildEditedProfile()
     {
         var selectedProfile = SelectedProfile ?? throw new InvalidOperationException("Select a runtime config profile first.");

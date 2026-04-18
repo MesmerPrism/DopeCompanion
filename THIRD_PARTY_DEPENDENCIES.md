@@ -31,6 +31,19 @@ operator tooling.
   [Android Software Development Kit License Agreement](https://developer.android.com/studio/releases/platform-tools)
 - This repo does not claim to relicense Android SDK Platform-Tools under MIT.
 
+### scrcpy (`scrcpy.exe` and related runtime files)
+
+- The public DOPE release currently does not ship `scrcpy` in source control or
+  in the GitHub release assets.
+- The live `Display 0` cast surface looks for an existing `scrcpy` runtime on
+  the operator machine, in this order:
+  app-local `scrcpy.exe`, app-local `scrcpy\scrcpy.exe`, the local
+  `Quest Multi Stream\tools\scrcpy` cache, then `PATH`.
+- Upstream project: [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy)
+- Upstream license/terms:
+  [Apache License 2.0](https://github.com/Genymobile/scrcpy/blob/master/LICENSE)
+- This repo does not claim to relicense `scrcpy` under MIT.
+
 ### Bundled Public Study Payloads
 
 - This public repo may mirror explicitly approved public study payloads needed

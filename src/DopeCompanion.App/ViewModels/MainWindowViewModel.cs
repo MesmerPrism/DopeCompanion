@@ -3,9 +3,11 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using DopeCompanion.App;
 using DopeCompanion.Core.Models;
 using DopeCompanion.Core.Services;
 
@@ -21,6 +23,26 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         new("twin", "Twin + Timing", "Twin apply policy and future DOPE live-sync bridge values."),
         new("state", "App State", "Foreground package, runtime state, and session metadata coming back from quest_twin_state."),
         new("all", "All Public Keys", "Every requested or reported key currently visible to the public twin bridge.")
+    ];
+    private static readonly string[] LiveSessionPrimarySettingKeys =
+    [
+        "projected_feed_brightness",
+        "projected_feed_contrast",
+        "projected_feed_saturation",
+        "projected_feed_displacement_blur_radius_texels",
+        "projected_feed_displacement_blur_sigma",
+        "projected_feed_displacement_blend",
+        "projected_feed_displacement_gradient_influence",
+        "projected_feed_pre_strength_brightness_blur"
+    ];
+    private static readonly string[] LiveSessionSecondarySettingKeys =
+    [
+        "projected_feed_gradient_span",
+        "projected_feed_gradient_blend",
+        "projected_feed_max_horizontal_displacement",
+        "projected_feed_max_vertical_displacement",
+        "projected_feed_displacement_audio_range_boost",
+        "projected_feed_gradient_audio_speed_boost"
     ];
 
     private readonly QuestSessionKitCatalogLoader _catalogLoader = new();
@@ -38,6 +60,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly SessionManifestWriter _manifestWriter = new();
     private readonly RuntimeConfigWorkspaceViewModel _runtimeConfig = new();
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
+    private readonly QuestDisplayCastService _questDisplayCastService = new();
     private readonly DopeParticleSizeTuningCompiler _dopeParticleSizeTuningCompiler = new();
     private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly Dispatcher _dispatcher;
@@ -160,6 +183,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _diagnosticsReportTimestampLabel = "Not generated yet.";
     private string _diagnosticsReportFolderPath = string.Empty;
     private string _diagnosticsReportPdfPath = string.Empty;
+    private OperationOutcomeKind _liveSessionCastLevel = OperationOutcomeKind.Preview;
+    private string _liveSessionCastSummary = "Display 0 cast idle.";
+    private string _liveSessionCastDetail = "Start the cast to open Display 0 in a separate scrcpy window.";
+    private OperationOutcomeKind _liveSessionProximityLevel = OperationOutcomeKind.Preview;
+    private string _liveSessionProximitySummary = "Quest proximity state not checked yet.";
+    private string _liveSessionProximityDetail = "Refresh the live session snapshot to read the current Quest wear-sensor state.";
+    private QuestProximityStatus? _liveSessionProximityStatus;
+    private string _liveSessionRuntimeReadbackSummary = "Waiting for live runtime JSON.";
+    private string _liveSessionRuntimeReadbackDetail = "Connect the live DOPE runtime and let it publish quest_twin_state before expecting current projected-feed values here.";
+    private IReadOnlyDictionary<string, string> _liveSessionDeviceRuntimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private LiveSessionWindow? _liveSessionWindow;
+    private DisplayCastOverlayWindow? _liveSessionCastOverlayWindow;
 
     public MainWindowViewModel()
     {
@@ -182,6 +217,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _twinBridgeDetail = _twinBridge.Status.Detail;
         UpdateLslRuntimeState();
         _runtimeConfig.PropertyChanged += OnRuntimeConfigPropertyChanged;
+        _questDisplayCastService.StateChanged += OnQuestDisplayCastStateChanged;
         foreach (var scope in TwinInspectorScopeCatalog)
         {
             TwinInspectorScopes.Add(scope);
@@ -236,7 +272,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OpenDiagnosticsReportFolderCommand = new AsyncRelayCommand(OpenDiagnosticsReportFolderAsync);
         OpenDiagnosticsReportPdfCommand = new AsyncRelayCommand(OpenDiagnosticsReportPdfAsync);
         OpenLocalAgentWorkspaceCommand = new AsyncRelayCommand(OpenLocalAgentWorkspaceAsync);
+        OpenLiveSessionWindowCommand = new AsyncRelayCommand(OpenLiveSessionWindowAsync);
+        ToggleLiveSessionProximityCommand = new AsyncRelayCommand(ToggleLiveSessionProximityAsync);
+        StartLiveSessionCastCommand = new AsyncRelayCommand(StartLiveSessionCastAsync);
+        StopLiveSessionCastCommand = new AsyncRelayCommand(StopLiveSessionCastAsync, () => _questDisplayCastService.IsRunning);
+        RestartLiveSessionCastCommand = new AsyncRelayCommand(RestartLiveSessionCastAsync);
         RefreshDopeParticleTuningState();
+        RefreshLiveSessionEditors();
+        RefreshLiveSessionCastState();
     }
 
     public ObservableCollection<QuestAppTarget> Apps { get; } = new();
@@ -380,6 +423,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<StudyStatusRowViewModel> DeviceProfileDiagnosticsRows { get; } = new();
 
+    public ObservableCollection<LiveSessionSettingViewModel> LiveSessionPrimarySettings { get; } = new();
+
+    public ObservableCollection<LiveSessionSettingViewModel> LiveSessionSecondarySettings { get; } = new();
+
     public ObservableCollection<ActionChoice<QuestUtilityAction>> UtilityActions { get; } = new(
     [
         new ActionChoice<QuestUtilityAction>("Home", "Return to the Quest launcher.", QuestUtilityAction.Home),
@@ -461,6 +508,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand OpenDiagnosticsReportPdfCommand { get; }
 
     public AsyncRelayCommand OpenLocalAgentWorkspaceCommand { get; }
+
+    public AsyncRelayCommand OpenLiveSessionWindowCommand { get; }
+
+    public AsyncRelayCommand ToggleLiveSessionProximityCommand { get; }
+
+    public AsyncRelayCommand StartLiveSessionCastCommand { get; }
+
+    public AsyncRelayCommand StopLiveSessionCastCommand { get; }
+
+    public AsyncRelayCommand RestartLiveSessionCastCommand { get; }
 
     public string CatalogStatus
     {
@@ -869,6 +926,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(TargetSelectionHeadline));
                 OnPropertyChanged(nameof(TargetSelectionDetail));
                 OnPropertyChanged(nameof(RuntimeConfigPublishChannelSummary));
+                OnPropertyChanged(nameof(LiveSessionHeaderSummary));
+                OnPropertyChanged(nameof(LiveSessionHeaderDetail));
+                RefreshLiveSessionReportedValues();
             }
         }
     }
@@ -1154,6 +1214,80 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string WindowTitle => $"DOPE Companion ({AppBuildIdentity.Current.ShortId})";
 
+    public string LiveSessionWindowTitle => $"DOPE Live Session ({AppBuildIdentity.Current.ShortId})";
+
+    public string LiveSessionHeaderSummary
+        => SelectedApp is null
+            ? "Live session editing is ready once a DOPE runtime target is selected."
+            : $"Live session controls for {SelectedApp.Label}. Work on the projected-feed multi-layer Colorama scene without leaving the headset workflow.";
+
+    public string LiveSessionHeaderDetail
+        => SelectedApp is null
+            ? "Refresh Device Snapshot to adopt the current headset app automatically, or choose the DOPE runtime manually in Quest Library."
+            : $"{SelectedApp.PackageId}. Publish pushes the staged values on quest_hotload_config while live readback comes from quest_twin_state.";
+
+    public string LiveSessionRuntimeReadbackSummary
+    {
+        get => _liveSessionRuntimeReadbackSummary;
+        private set => SetProperty(ref _liveSessionRuntimeReadbackSummary, value);
+    }
+
+    public string LiveSessionRuntimeReadbackDetail
+    {
+        get => _liveSessionRuntimeReadbackDetail;
+        private set => SetProperty(ref _liveSessionRuntimeReadbackDetail, value);
+    }
+
+    public OperationOutcomeKind LiveSessionCastLevel
+    {
+        get => _liveSessionCastLevel;
+        private set => SetProperty(ref _liveSessionCastLevel, value);
+    }
+
+    public string LiveSessionCastSummary
+    {
+        get => _liveSessionCastSummary;
+        private set => SetProperty(ref _liveSessionCastSummary, value);
+    }
+
+    public string LiveSessionCastDetail
+    {
+        get => _liveSessionCastDetail;
+        private set => SetProperty(ref _liveSessionCastDetail, value);
+    }
+
+    public string LiveSessionCastSourceLabel => _questDisplayCastService.CaptureSourceLabel;
+
+    public string LiveSessionCastToolingLabel => _questDisplayCastService.ToolingPath;
+
+    public OperationOutcomeKind LiveSessionProximityLevel
+    {
+        get => _liveSessionProximityLevel;
+        private set => SetProperty(ref _liveSessionProximityLevel, value);
+    }
+
+    public string LiveSessionProximitySummary
+    {
+        get => _liveSessionProximitySummary;
+        private set => SetProperty(ref _liveSessionProximitySummary, value);
+    }
+
+    public string LiveSessionProximityDetail
+    {
+        get => _liveSessionProximityDetail;
+        private set => SetProperty(ref _liveSessionProximityDetail, value);
+    }
+
+    public string LiveSessionProximityActionLabel
+        => _liveSessionProximityStatus?.HoldActive == true
+            ? "Restore Sensor"
+            : "Enable Keep Awake";
+
+    public string LiveSessionProximityActionHint
+        => _liveSessionProximityStatus?.HoldActive == true
+            ? "Turns the Quest wear sensor back on."
+            : "Pretends the headset is being worn so the live session stays awake.";
+
     public string HeaderModeSummary
         => ActiveStudyShell is not null
             ? IsStudyModeLocked
@@ -1435,6 +1569,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _monitorCts?.Dispose();
         _testLslSignalService.Dispose();
         _runtimeConfig.PropertyChanged -= OnRuntimeConfigPropertyChanged;
+        _questDisplayCastService.StateChanged -= OnQuestDisplayCastStateChanged;
+        CloseLiveSessionWindow();
+        CloseLiveSessionCastOverlayWindow();
+        DisposeLiveSessionSettings(LiveSessionPrimarySettings);
+        DisposeLiveSessionSettings(LiveSessionSecondarySettings);
+        _questDisplayCastService.Dispose();
         ActiveStudyShell?.Dispose();
 
         if (_twinBridge is LslTwinModeBridge lslBridge)
@@ -1493,6 +1633,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     ?? DeviceProfiles.FirstOrDefault();
                 RefreshAvailableHotloadProfiles();
                 RefreshRuntimeConfigProfileSelection();
+                RefreshLiveSessionEditors();
 
                 AppendLog(OperatorLogLevel.Info, "Catalog refreshed.", $"{CatalogStatus} {_runtimeConfig.CatalogStatus}");
             }).ConfigureAwait(false);
@@ -1789,11 +1930,29 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return false;
         }
 
+        if (TryGetReportedRuntimeConfigJson(out runtimeConfigJson, out detail))
+        {
+            return true;
+        }
+
+        detail = "Connect the live Dope runtime and let it publish showcase_active_runtime_config_json on quest_twin_state before applying a particle-size tuning file.";
+        return false;
+    }
+
+    private bool TryGetReportedRuntimeConfigJson(out string runtimeConfigJson, out string detail)
+    {
+        runtimeConfigJson = string.Empty;
+        if (_twinBridge is not LslTwinModeBridge lslBridge)
+        {
+            detail = _twinBridge.Status.Detail;
+            return false;
+        }
+
         if (lslBridge.ReportedSettings.TryGetValue("showcase_active_runtime_config_json", out var liveRuntimeConfigJson) &&
             !string.IsNullOrWhiteSpace(liveRuntimeConfigJson))
         {
             runtimeConfigJson = liveRuntimeConfigJson;
-            detail = "Live Dope runtime JSON baseline is available on quest_twin_state.";
+            detail = "Live runtime JSON is available on quest_twin_state.";
             return true;
         }
 
@@ -1801,11 +1960,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             !string.IsNullOrWhiteSpace(liveRuntimeConfigJson))
         {
             runtimeConfigJson = liveRuntimeConfigJson;
-            detail = "Live Dope runtime JSON baseline is available on quest_twin_state.";
+            detail = "Live runtime JSON is available on quest_twin_state.";
             return true;
         }
 
-        detail = "Connect the live Dope runtime and let it publish showcase_active_runtime_config_json on quest_twin_state before applying a particle-size tuning file.";
+        detail = "Connect the live DOPE runtime and let it publish showcase_active_runtime_config_json on quest_twin_state before expecting readback here.";
         return false;
     }
 
@@ -2160,6 +2319,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }).ConfigureAwait(false);
 
         _latestHeadsetStatus = status;
+        await RefreshLiveSessionProximityStatusAsync().ConfigureAwait(false);
+        await RefreshLiveSessionDeviceRuntimeOverridesAsync().ConfigureAwait(false);
+        await DispatchAsync(RefreshLiveSessionReportedValues).ConfigureAwait(false);
     }
 
     private async Task AnalyzeWindowsEnvironmentAsync()
@@ -2541,6 +2703,461 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
+    private async Task OpenLiveSessionWindowAsync()
+    {
+        await DispatchAsync(() =>
+        {
+            if (_liveSessionWindow is { IsLoaded: true })
+            {
+                if (_liveSessionWindow.WindowState == WindowState.Minimized)
+                {
+                    _liveSessionWindow.WindowState = WindowState.Normal;
+                }
+
+                _liveSessionWindow.Activate();
+                return;
+            }
+
+            var owner = Application.Current?.Windows
+                .OfType<Window>()
+                .FirstOrDefault(window => window.IsActive)
+                ?? Application.Current?.MainWindow;
+
+            var window = new LiveSessionWindow(this)
+            {
+                Owner = owner
+            };
+            window.Closed += OnLiveSessionWindowClosed;
+            _liveSessionWindow = window;
+            window.Show();
+            window.Activate();
+        }).ConfigureAwait(false);
+
+        await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+    }
+
+    private void OnLiveSessionWindowClosed(object? sender, EventArgs e)
+    {
+        if (_liveSessionWindow is not null)
+        {
+            _liveSessionWindow.Closed -= OnLiveSessionWindowClosed;
+            _liveSessionWindow = null;
+        }
+    }
+
+    private void CloseLiveSessionWindow()
+    {
+        if (_liveSessionWindow is null)
+        {
+            return;
+        }
+
+        _liveSessionWindow.Closed -= OnLiveSessionWindowClosed;
+        _liveSessionWindow.Close();
+        _liveSessionWindow = null;
+    }
+
+    private void EnsureLiveSessionCastOverlayWindow()
+    {
+        if (!_questDisplayCastService.IsRunning)
+        {
+            CloseLiveSessionCastOverlayWindow();
+            return;
+        }
+
+        if (_liveSessionCastOverlayWindow is { IsLoaded: true })
+        {
+            _liveSessionCastOverlayWindow.RefreshFromCastWindow();
+            return;
+        }
+
+        var window = new DisplayCastOverlayWindow(_questDisplayCastService, StopLiveSessionCastCommand);
+        window.Closed += OnLiveSessionCastOverlayWindowClosed;
+        _liveSessionCastOverlayWindow = window;
+        window.Show();
+        window.RefreshFromCastWindow();
+    }
+
+    private void OnLiveSessionCastOverlayWindowClosed(object? sender, EventArgs e)
+    {
+        if (_liveSessionCastOverlayWindow is not null)
+        {
+            _liveSessionCastOverlayWindow.Closed -= OnLiveSessionCastOverlayWindowClosed;
+            _liveSessionCastOverlayWindow = null;
+        }
+    }
+
+    private void CloseLiveSessionCastOverlayWindow()
+    {
+        if (_liveSessionCastOverlayWindow is null)
+        {
+            return;
+        }
+
+        _liveSessionCastOverlayWindow.Closed -= OnLiveSessionCastOverlayWindowClosed;
+        _liveSessionCastOverlayWindow.Close();
+        _liveSessionCastOverlayWindow = null;
+    }
+
+    private async Task ToggleLiveSessionProximityAsync()
+    {
+        var action = _liveSessionProximityStatus?.HoldActive == true
+            ? QuestUtilityAction.EnableProximity
+            : QuestUtilityAction.DisableProximity;
+        var outcome = await _questService.RunUtilityAsync(action).ConfigureAwait(false);
+        await ApplyOutcomeAsync("Toggle Live Session Proximity", outcome).ConfigureAwait(false);
+        await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+    }
+
+    private async Task StartLiveSessionCastAsync()
+    {
+        var selector = ResolveDisplayCastSelector();
+        var outcome = await _questDisplayCastService.StartDisplay0Async(selector).ConfigureAwait(false);
+        await ApplyOutcomeAsync("Start Display 0 Cast", outcome).ConfigureAwait(false);
+        await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
+    }
+
+    private async Task StopLiveSessionCastAsync()
+    {
+        var outcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
+        await ApplyOutcomeAsync("Stop Display 0 Cast", outcome).ConfigureAwait(false);
+        await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
+    }
+
+    private async Task RestartLiveSessionCastAsync()
+    {
+        var stopOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
+        var startOutcome = await _questDisplayCastService.StartDisplay0Async(ResolveDisplayCastSelector()).ConfigureAwait(false);
+        await ApplyOutcomeAsync(
+            "Restart Display 0 Cast",
+            new OperationOutcome(
+                startOutcome.Kind,
+                startOutcome.Summary,
+                $"{stopOutcome.Detail} {startOutcome.Detail}".Trim())).ConfigureAwait(false);
+        await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
+    }
+
+    private async Task RefreshLiveSessionProximityStatusAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_hzdbService.IsAvailable)
+        {
+            await DispatchAsync(() =>
+            {
+                _liveSessionProximityStatus = null;
+                LiveSessionProximityLevel = OperationOutcomeKind.Preview;
+                LiveSessionProximitySummary = "Quest proximity state unavailable.";
+                LiveSessionProximityDetail = "Install the managed Quest tooling cache to read the live wear-sensor state from hzdb.";
+                OnPropertyChanged(nameof(LiveSessionProximityActionLabel));
+                OnPropertyChanged(nameof(LiveSessionProximityActionHint));
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        var selector = ResolveHzdbSelector();
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            await DispatchAsync(() =>
+            {
+                _liveSessionProximityStatus = null;
+                LiveSessionProximityLevel = OperationOutcomeKind.Warning;
+                LiveSessionProximitySummary = "Quest proximity selector unavailable.";
+                LiveSessionProximityDetail = "Connect the headset over USB or Wi-Fi ADB before toggling keep-awake from the live session window.";
+                OnPropertyChanged(nameof(LiveSessionProximityActionLabel));
+                OnPropertyChanged(nameof(LiveSessionProximityActionHint));
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            var status = await _hzdbService.GetProximityStatusAsync(selector, cancellationToken).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                _liveSessionProximityStatus = status;
+                LiveSessionProximityLevel = !status.Available
+                    ? OperationOutcomeKind.Warning
+                    : status.HoldActive
+                        ? OperationOutcomeKind.Success
+                        : OperationOutcomeKind.Preview;
+                LiveSessionProximitySummary = !status.Available
+                    ? "Quest proximity state unavailable."
+                    : status.HoldActive
+                        ? "Keep-awake override active."
+                        : "Normal Quest sensor active.";
+                LiveSessionProximityDetail = !status.Available
+                    ? status.StatusDetail
+                    : $"Virtual state {status.VirtualState}. Headset state {status.HeadsetState}. {status.StatusDetail}";
+                OnPropertyChanged(nameof(LiveSessionProximityActionLabel));
+                OnPropertyChanged(nameof(LiveSessionProximityActionHint));
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await DispatchAsync(() =>
+            {
+                _liveSessionProximityStatus = null;
+                LiveSessionProximityLevel = OperationOutcomeKind.Warning;
+                LiveSessionProximitySummary = "Quest proximity read failed.";
+                LiveSessionProximityDetail = ex.Message;
+                OnPropertyChanged(nameof(LiveSessionProximityActionLabel));
+                OnPropertyChanged(nameof(LiveSessionProximityActionHint));
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task RefreshLiveSessionDeviceRuntimeOverridesAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_hzdbService.IsAvailable || SelectedApp is null)
+        {
+            _liveSessionDeviceRuntimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        var selector = ResolveHzdbSelector();
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            _liveSessionDeviceRuntimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        var remotePath = $"/sdcard/Android/data/{SelectedApp.PackageId}/files/runtime_hotload/runtime_overrides.csv";
+        var localPath = Path.Combine(Path.GetTempPath(), "dope-live-runtime-overrides.csv");
+
+        try
+        {
+            var outcome = await _hzdbService.PullFileAsync(selector, remotePath, localPath, cancellationToken).ConfigureAwait(false);
+            if (outcome.Kind == OperationOutcomeKind.Success && File.Exists(localPath))
+            {
+                _liveSessionDeviceRuntimeValues = ParseRuntimeOverrideCsv(localPath);
+            }
+            else
+            {
+                _liveSessionDeviceRuntimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+        catch
+        {
+            _liveSessionDeviceRuntimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(localPath))
+                {
+                    File.Delete(localPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private void RefreshLiveSessionCastState()
+    {
+        LiveSessionCastLevel = _questDisplayCastService.Level;
+        LiveSessionCastSummary = _questDisplayCastService.Summary;
+        LiveSessionCastDetail = _questDisplayCastService.Detail;
+        StopLiveSessionCastCommand.RaiseCanExecuteChanged();
+    }
+
+    private void SyncLiveSessionCastSurface()
+    {
+        RefreshLiveSessionCastState();
+        if (_questDisplayCastService.IsRunning)
+        {
+            EnsureLiveSessionCastOverlayWindow();
+            return;
+        }
+
+        CloseLiveSessionCastOverlayWindow();
+    }
+
+    private void RefreshLiveSessionEditors()
+    {
+        ResetLiveSessionSettings(LiveSessionPrimarySettings, LiveSessionPrimarySettingKeys);
+        ResetLiveSessionSettings(LiveSessionSecondarySettings, LiveSessionSecondarySettingKeys);
+        RefreshLiveSessionReportedValues();
+    }
+
+    private void RefreshLiveSessionReportedValues()
+    {
+        var values = BuildLiveRuntimeValueLookup(out var summary, out var detail);
+        LiveSessionRuntimeReadbackSummary = summary;
+        LiveSessionRuntimeReadbackDetail = detail;
+
+        foreach (var setting in LiveSessionPrimarySettings)
+        {
+            ApplyLiveSessionSettingValue(setting, values, detail);
+        }
+
+        foreach (var setting in LiveSessionSecondarySettings)
+        {
+            ApplyLiveSessionSettingValue(setting, values, detail);
+        }
+    }
+
+    private void ResetLiveSessionSettings(
+        ObservableCollection<LiveSessionSettingViewModel> target,
+        IReadOnlyList<string> keys)
+    {
+        DisposeLiveSessionSettings(target);
+
+        foreach (var row in _runtimeConfig.GetRowsByKeys(keys))
+        {
+            target.Add(new LiveSessionSettingViewModel(row));
+        }
+    }
+
+    private static void DisposeLiveSessionSettings(ObservableCollection<LiveSessionSettingViewModel> target)
+    {
+        foreach (var setting in target)
+        {
+            setting.Dispose();
+        }
+
+        target.Clear();
+    }
+
+    private void ApplyLiveSessionSettingValue(
+        LiveSessionSettingViewModel setting,
+        IReadOnlyDictionary<string, (string Value, string Source)> values,
+        string missingDetail)
+    {
+        if (values.TryGetValue(setting.Key, out var entry))
+        {
+            setting.ApplyLiveValue(entry.Value, entry.Source);
+            return;
+        }
+
+        setting.ClearLiveValue(missingDetail);
+    }
+
+    private IReadOnlyDictionary<string, (string Value, string Source)> BuildLiveRuntimeValueLookup(
+        out string summary,
+        out string detail)
+    {
+        var values = new Dictionary<string, (string Value, string Source)>(StringComparer.OrdinalIgnoreCase);
+
+        if (_twinBridge is LslTwinModeBridge lslBridge)
+        {
+            foreach (var pair in lslBridge.ReportedSettings)
+            {
+                if (pair.Key.StartsWith("projected_feed_", StringComparison.OrdinalIgnoreCase))
+                {
+                    values[pair.Key] = (pair.Value, "Reported directly on quest_twin_state");
+                }
+            }
+        }
+
+        if (TryGetReportedRuntimeConfigJson(out var runtimeConfigJson, out var runtimeDetail))
+        {
+            foreach (var pair in ParseRuntimeConfigEntries(runtimeConfigJson))
+            {
+                if (!values.ContainsKey(pair.Key))
+                {
+                    values[pair.Key] = (pair.Value, "Parsed from live runtime JSON");
+                }
+            }
+
+            summary = values.Count == 0
+                ? "Live runtime JSON is available."
+                : $"Live runtime values available for {values.Count} setting(s).";
+            detail = runtimeDetail;
+            return values;
+        }
+
+        foreach (var pair in _liveSessionDeviceRuntimeValues)
+        {
+            if (pair.Key.StartsWith("projected_feed_", StringComparison.OrdinalIgnoreCase) && !values.ContainsKey(pair.Key))
+            {
+                values[pair.Key] = (pair.Value, "Pulled from device runtime_overrides.csv");
+            }
+        }
+
+        if (values.Count > 0)
+        {
+            var usingDeviceSnapshot = values.Values.Any(entry => entry.Source.StartsWith("Pulled from device", StringComparison.OrdinalIgnoreCase));
+            summary = usingDeviceSnapshot
+                ? $"Current device values available for {values.Count} setting(s)."
+                : $"Direct live values available for {values.Count} setting(s).";
+            detail = usingDeviceSnapshot
+                ? "Live twin JSON was not visible, so the current values are coming from the device runtime_overrides.csv snapshot."
+                : "Some projected-feed keys are being reported directly on quest_twin_state even though the full runtime JSON is not available.";
+            return values;
+        }
+
+        summary = "Waiting for live runtime JSON.";
+        detail = runtimeDetail;
+        return values;
+    }
+
+    private static IReadOnlyDictionary<string, string> ParseRuntimeConfigEntries(string runtimeConfigJson)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(runtimeConfigJson))
+        {
+            return values;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(runtimeConfigJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return values;
+            }
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                values[property.Name] = property.Value.ValueKind switch
+                {
+                    JsonValueKind.String => property.Value.GetString() ?? string.Empty,
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    _ => property.Value.GetRawText()
+                };
+            }
+        }
+        catch
+        {
+            return values;
+        }
+
+        return values;
+    }
+
+    private static IReadOnlyDictionary<string, string> ParseRuntimeOverrideCsv(string path)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadLines(path))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line)
+                || line.StartsWith('#')
+                || string.Equals(line, "key,value", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var commaIndex = line.IndexOf(',');
+            if (commaIndex <= 0 || commaIndex >= line.Length - 1)
+            {
+                continue;
+            }
+
+            var key = line[..commaIndex].Trim();
+            var value = line[(commaIndex + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                values[key] = value;
+            }
+        }
+
+        return values;
+    }
+
     private async Task RestartMonitorAsync()
     {
         UpdateLslRuntimeState();
@@ -2917,6 +3534,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             LastTwinStateTimestampLabel = "No live app-state timestamp yet.";
             SettingsDelta.Clear();
             RefreshDopeParticleTuningState();
+            RefreshLiveSessionReportedValues();
             OnPropertyChanged(nameof(TwinInspectorScopeSummary));
             OnPropertyChanged(nameof(TwinInspectorMatchLabel));
             OnPropertyChanged(nameof(TwinInspectorMatchPercent));
@@ -2984,6 +3602,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             ? "No live LSL app-state timestamp yet."
             : $"Last app-state frame {lslBridge.LastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}.";
         RefreshDopeParticleTuningState();
+        RefreshLiveSessionReportedValues();
         RefreshRuntimeContextLabels();
         RefreshTwinBridgeStatus(deltas);
         NotifyOverviewStateChanged();
@@ -3072,6 +3691,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         return string.Empty;
+    }
+
+    private string ResolveDisplayCastSelector()
+    {
+        var candidates = new List<string>(5);
+        AddHzdbSelectorCandidate(
+            candidates,
+            _latestHeadsetStatus is { IsUsbAdbVisible: true } && !string.IsNullOrWhiteSpace(_latestHeadsetStatus.VisibleUsbSerial)
+                ? _latestHeadsetStatus.VisibleUsbSerial
+                : null);
+        AddHzdbSelectorCandidate(candidates, _sessionState.LastUsbSerial);
+        AddHzdbSelectorCandidate(candidates, _latestHeadsetStatus?.IsConnected == true ? _latestHeadsetStatus.ConnectionLabel : null);
+        AddHzdbSelectorCandidate(candidates, string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim());
+        AddHzdbSelectorCandidate(candidates, _sessionState.ActiveEndpoint);
+        return candidates.FirstOrDefault() ?? string.Empty;
     }
 
     private static string FormatDeviceProfilePropertyLabel(string key)
@@ -3441,6 +4075,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         });
     }
 
+    private void OnQuestDisplayCastStateChanged(object? sender, EventArgs e)
+    {
+        _ = _dispatcher.InvokeAsync(SyncLiveSessionCastSurface);
+    }
+
     private void OnTwinRefreshTimerTick(object? sender, EventArgs e)
     {
         if (!_twinRefreshPending)
@@ -3727,6 +4366,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             or nameof(RuntimeConfigWorkspaceViewModel.SelectedProfileSummary)
             or nameof(RuntimeConfigWorkspaceViewModel.SelectedProfileLabel))
         {
+            RefreshLiveSessionEditors();
             RefreshRuntimeContextLabels();
         }
     }

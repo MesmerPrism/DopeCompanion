@@ -47,39 +47,57 @@ public static class HarnessScenarioRunner
     public static void RunOnceFromCurrentDirectory()
     {
         var repoRoot = Directory.GetCurrentDirectory();
-        var outputRoot = Path.Combine(repoRoot, "artifacts", "verify", "dope-study-mode-live");
+        var castOverlayOnly = ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_OVERLAY");
+        var outputRoot = Path.Combine(
+            repoRoot,
+            "artifacts",
+            "verify",
+            castOverlayOnly ? "dope-cast-overlay" : "dope-study-mode-live");
         Directory.CreateDirectory(outputRoot);
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-study-mode-error.txt"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-study-mode-report.txt"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-screenshot-warnings.txt"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-initial.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-live.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-kiosk-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-home-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-controller-breathing-tab.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-controller-breathing-applied.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-calibration-workspace.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-experiment-session-calibration.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-automatic-breathing-automatic.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-automatic-breathing-paused.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-home-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-controller-breathing-applied.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-automatic-breathing-automatic.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-automatic-breathing-paused.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-participant-ready-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-participant-running-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-participant-ended-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-ready-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-running-proof.png"));
-        DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-ended-proof.png"));
-        DeleteDirectoryIfPresent(Path.Combine(outputRoot, "device-session-pull"));
+        if (castOverlayOnly)
+        {
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-error.txt"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-report.json"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-cast-overlay.png"));
+        }
+        else
+        {
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-study-mode-error.txt"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-study-mode-report.txt"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-screenshot-warnings.txt"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-initial.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-live.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-kiosk-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-home-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-controller-breathing-tab.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-controller-breathing-applied.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-calibration-workspace.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-experiment-session-calibration.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-automatic-breathing-automatic.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-automatic-breathing-paused.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-home-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-controller-breathing-applied.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-automatic-breathing-automatic.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-automatic-breathing-paused.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-participant-ready-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-participant-running-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-participant-ended-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-ready-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-running-proof.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-ended-proof.png"));
+            DeleteDirectoryIfPresent(Path.Combine(outputRoot, "device-session-pull"));
+        }
 
-        using var outlet = new FloatLslTestOutlet();
-        outlet.Open(
-            HrvBiofeedbackStreamContract.StreamName,
-            HrvBiofeedbackStreamContract.StreamType,
-            "dope.dope.harness");
+        FloatLslTestOutlet? outlet = null;
+        if (!castOverlayOnly)
+        {
+            outlet = new FloatLslTestOutlet();
+            outlet.Open(
+                HrvBiofeedbackStreamContract.StreamName,
+                HrvBiofeedbackStreamContract.StreamType,
+                "dope.dope.harness");
+        }
 
         Environment.SetEnvironmentVariable(
             DopeCompanion.App.App.SuppressStartupWindowEnvironmentVariable,
@@ -100,17 +118,26 @@ public static class HarnessScenarioRunner
                 window.Activate();
                 window.Topmost = true;
                 window.Topmost = false;
-                await ExecuteScenarioAsync(window, repoRoot, outputRoot, outlet);
+                if (castOverlayOnly)
+                {
+                    await ExecuteCastOverlayScenarioAsync(window, outputRoot);
+                }
+                else
+                {
+                    await ExecuteScenarioAsync(window, repoRoot, outputRoot, outlet!);
+                }
             }
             catch (Exception ex)
             {
-                await File.WriteAllTextAsync(Path.Combine(outputRoot, "dope-study-mode-error.txt"), ex.ToString());
+                var errorFileName = castOverlayOnly ? "dope-cast-overlay-error.txt" : "dope-study-mode-error.txt";
+                await File.WriteAllTextAsync(Path.Combine(outputRoot, errorFileName), ex.ToString());
                 Environment.ExitCode = 1;
             }
             finally
             {
                 window.Close();
                 app.Shutdown();
+                outlet?.Dispose();
             }
         };
 
@@ -123,6 +150,110 @@ public static class HarnessScenarioRunner
         var outputRoot = Path.Combine(repoRoot, "artifacts", "verify", "dope-study-mode-live");
         Directory.CreateDirectory(outputRoot);
         File.WriteAllText(Path.Combine(outputRoot, "dope-study-mode-error.txt"), ex.ToString());
+    }
+
+    private static async Task ExecuteCastOverlayScenarioAsync(Window window, string outputRoot)
+    {
+        if (window.DataContext is not MainWindowViewModel mainViewModel)
+        {
+            throw new InvalidOperationException("Main window did not expose MainWindowViewModel as DataContext.");
+        }
+
+        CaptureWindow(window, Path.Combine(outputRoot, "dope-main-window-cast-overlay.png"));
+
+        if (string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft))
+        {
+            await ExecuteStandaloneCommandAsync(
+                mainViewModel.DiscoverWifiCommand,
+                "Find Wi-Fi Quest",
+                TimeSpan.FromSeconds(45));
+        }
+
+        if (string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft))
+        {
+            await ExecuteStandaloneCommandAsync(
+                mainViewModel.ProbeUsbCommand,
+                "Probe USB",
+                TimeSpan.FromSeconds(45));
+        }
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.ConnectQuestCommand,
+            "Connect Quest",
+            TimeSpan.FromSeconds(30));
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.RefreshHeadsetStatusCommand,
+            "Refresh Device Snapshot",
+            TimeSpan.FromSeconds(30));
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.StartLiveSessionCastCommand,
+            "Start Display 0",
+            TimeSpan.FromSeconds(45));
+
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastLevel == OperationOutcomeKind.Success &&
+                  mainViewModel.LiveSessionCastSummary.Contains("Casting", StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(20),
+            $"Display 0 cast did not enter the expected running state. {mainViewModel.LiveSessionCastSummary} {mainViewModel.LiveSessionCastDetail}");
+
+        const string castWindowTitle = "DOPE Companion Cast · Display 0";
+        const string overlayWindowTitle = "DOPE Companion Cast · Display 0 Controls";
+        await WaitForConditionAsync(
+            () => TryGetWindowBounds(castWindowTitle, out _) && TryGetWindowBounds(overlayWindowTitle, out _),
+            TimeSpan.FromSeconds(20),
+            $"Expected cast windows were not visible. Cast summary: {mainViewModel.LiveSessionCastSummary} Detail: {mainViewModel.LiveSessionCastDetail}");
+
+        if (!TryGetWindowBounds(castWindowTitle, out var castBoundsBefore))
+        {
+            throw new InvalidOperationException("Could not read the initial Display 0 cast bounds.");
+        }
+
+        if (!TryGetWindowBounds(overlayWindowTitle, out var overlayBoundsBefore))
+        {
+            throw new InvalidOperationException("Could not read the initial cast overlay bounds.");
+        }
+
+        var movedOverlayBounds = new NativeWindowBounds(
+            overlayBoundsBefore.X,
+            overlayBoundsBefore.Y,
+            overlayBoundsBefore.Width + 180,
+            overlayBoundsBefore.Height + 120);
+        if (!TryMoveWindow(overlayWindowTitle, movedOverlayBounds))
+        {
+            throw new InvalidOperationException("Could not resize the cast overlay window.");
+        }
+
+        await WaitForConditionAsync(
+            () => TryGetWindowBounds(castWindowTitle, out var castBoundsAfterResize) &&
+                  castBoundsAfterResize.Width >= castBoundsBefore.Width + 150 &&
+                  castBoundsAfterResize.Height >= castBoundsBefore.Height + 90,
+            TimeSpan.FromSeconds(10),
+            "Resizing the cast overlay did not propagate to the Display 0 cast window.");
+
+        TryGetWindowBounds(castWindowTitle, out var castBoundsAfter);
+        TryGetWindowBounds(overlayWindowTitle, out var overlayBoundsAfter);
+
+        var report = new
+        {
+            mainViewModel.LiveSessionCastSummary,
+            mainViewModel.LiveSessionCastDetail,
+            CastWindowTitle = castWindowTitle,
+            OverlayWindowTitle = overlayWindowTitle,
+            CastBoundsBefore = castBoundsBefore,
+            CastBoundsAfter = castBoundsAfter,
+            OverlayBoundsBefore = overlayBoundsBefore,
+            OverlayBoundsAfter = overlayBoundsAfter
+        };
+
+        await File.WriteAllTextAsync(
+            Path.Combine(outputRoot, "dope-cast-overlay-report.json"),
+            JsonSerializer.Serialize(report, ManifestJsonOptions));
+
+        if (mainViewModel.StopLiveSessionCastCommand.CanExecute(null))
+        {
+            await Application.Current.Dispatcher.InvokeAsync(() => mainViewModel.StopLiveSessionCastCommand.Execute(null));
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        }
     }
 
     private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, FloatLslTestOutlet outlet)
@@ -2441,6 +2572,40 @@ public static class HarnessScenarioRunner
             Baseline: baseline);
     }
 
+    private static bool TryGetWindowBounds(string windowTitle, out NativeWindowBounds bounds)
+    {
+        var handle = NativeMethods.FindWindow(null, windowTitle);
+        if (handle == IntPtr.Zero || !NativeMethods.GetWindowRect(handle, out var rect))
+        {
+            bounds = new NativeWindowBounds(0, 0, 0, 0);
+            return false;
+        }
+
+        bounds = new NativeWindowBounds(
+            rect.Left,
+            rect.Top,
+            Math.Max(1, rect.Right - rect.Left),
+            Math.Max(1, rect.Bottom - rect.Top));
+        return true;
+    }
+
+    private static bool TryMoveWindow(string windowTitle, NativeWindowBounds bounds)
+    {
+        var handle = NativeMethods.FindWindow(null, windowTitle);
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return NativeMethods.MoveWindow(
+            handle,
+            bounds.X,
+            bounds.Y,
+            Math.Max(1, bounds.Width),
+            Math.Max(1, bounds.Height),
+            true);
+    }
+
     private static bool ShouldPersistVerifiedEnvironmentBaseline(
         StudyShellViewModel studyViewModel,
         ObservationResult senderRestartResult,
@@ -2631,6 +2796,35 @@ public static class HarnessScenarioRunner
     private static bool ReadBoolEnvironmentVariable(string variableName)
         => string.Equals(Environment.GetEnvironmentVariable(variableName), "1", StringComparison.OrdinalIgnoreCase)
            || string.Equals(Environment.GetEnvironmentVariable(variableName), "true", StringComparison.OrdinalIgnoreCase);
+
+    private sealed record NativeWindowBounds(
+        int X,
+        int Y,
+        int Width,
+        int Height);
+
+    private static class NativeMethods
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern nint FindWindow(string? className, string? windowName);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetWindowRect(nint windowHandle, out RECT rect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool MoveWindow(nint windowHandle, int x, int y, int width, int height, [MarshalAs(UnmanagedType.Bool)] bool repaint);
+    }
 }
 
 internal sealed class FloatLslTestOutlet : IDisposable

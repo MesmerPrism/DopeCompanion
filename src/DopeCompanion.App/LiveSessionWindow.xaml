@@ -1,0 +1,356 @@
+<Window x:Class="DopeCompanion.App.LiveSessionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:local="clr-namespace:DopeCompanion.App"
+        xmlns:viewModels="clr-namespace:DopeCompanion.App.ViewModels"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="{Binding LiveSessionWindowTitle}"
+        Width="1460"
+        Height="920"
+        MinWidth="1180"
+        MinHeight="760"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AppBackgroundBrush}"
+        Foreground="{StaticResource InkBrush}">
+    <Window.Resources>
+        <local:OutcomeKindToBrushConverter x:Key="OutcomeKindToBrush" />
+        <local:OutcomeKindToSoftBrushConverter x:Key="OutcomeKindToSoftBrush" />
+        <local:CountToVisibilityConverter x:Key="CountToVisibility" />
+
+        <Style x:Key="InsetPanelStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+            <Setter Property="Padding" Value="14" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+
+        <Style x:Key="PrimaryActionButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource FocusBlueBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Padding" Value="14,9" />
+        </Style>
+
+        <Style x:Key="LiveMicroLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="LiveCodeStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+
+        <DataTemplate DataType="{x:Type viewModels:SingleValueRowViewModel}">
+            <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}"
+                     FontSize="18"
+                     MinWidth="180"
+                     Padding="10,6" />
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type viewModels:ToggleRowViewModel}">
+            <CheckBox Content="Enabled"
+                      IsChecked="{Binding Value}"
+                      FontSize="16"
+                      VerticalAlignment="Center" />
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type viewModels:ChoiceRowViewModel}">
+            <ComboBox ItemsSource="{Binding Options}"
+                      SelectedItem="{Binding SelectedOption}"
+                      MinWidth="180"
+                      FontSize="16" />
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type viewModels:LiveSessionSettingViewModel}">
+            <Border Style="{StaticResource PanelBorderStyle}"
+                    Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="{Binding Label}"
+                               Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="{Binding Key}"
+                               Style="{StaticResource LiveCodeStyle}"
+                               Foreground="{StaticResource MutedBrush}"
+                               Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding Description}"
+                               Style="{StaticResource SectionCaptionStyle}"
+                               Margin="0,6,0,0" />
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="0.95*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="1.05*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0"
+                                Style="{StaticResource InsetPanelStyle}"
+                                Background="{Binding LiveLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding LiveLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Current live value"
+                                           Style="{StaticResource LiveMicroLabelStyle}" />
+                                <TextBlock Text="{Binding LiveValue}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="22"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding LiveLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,6,0,0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding LiveDetail}"
+                                           Style="{StaticResource SectionCaptionStyle}"
+                                           Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2"
+                                Style="{StaticResource InsetPanelStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Staged override"
+                                           Style="{StaticResource LiveMicroLabelStyle}" />
+                                <ContentPresenter Content="{Binding Row}"
+                                                  Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Style="{StaticResource PanelBorderStyle}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="420" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Live Session"
+                               Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="{Binding LiveSessionHeaderSummary}"
+                               FontSize="18"
+                               FontWeight="Bold"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding LiveSessionHeaderDetail}"
+                               Style="{StaticResource SectionCaptionStyle}"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <Border Style="{StaticResource InsetPanelStyle}"
+                            Background="{Binding LiveSessionCastLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding LiveSessionCastLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Build + live state"
+                                       Style="{StaticResource LiveMicroLabelStyle}" />
+                            <TextBlock Text="{Binding PublishedBuildSummary}"
+                                       Style="{StaticResource LiveCodeStyle}"
+                                       FontWeight="Bold"
+                                       Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding LastTwinStateTimestampLabel}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding LiveSessionRuntimeReadbackSummary}"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource FocusBlueBrush}"
+                                       Margin="0,10,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LiveSessionRuntimeReadbackDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,6,0,0"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.2*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="0.8*" />
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Border Style="{StaticResource PanelBorderStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Colorama live controls"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="The first group stays focused on the live session knobs that matter most: blur, distortion strength, and the feed tone that shapes the multi-layer response."
+                                       Style="{StaticResource SectionCaptionStyle}" />
+                            <ItemsControl ItemsSource="{Binding LiveSessionPrimarySettings}"
+                                          Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Margin="0,14,0,0"
+                            Visibility="{Binding LiveSessionSecondarySettings.Count, Converter={StaticResource CountToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="Additional projected-feed controls"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="These secondary controls stay available in the same popout, but they are kept below the main live-session strip so the core scene edits stay easy to scan."
+                                       Style="{StaticResource SectionCaptionStyle}" />
+                            <ItemsControl ItemsSource="{Binding LiveSessionSecondarySettings}"
+                                          Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Border Style="{StaticResource PanelBorderStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Session actions"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="Keep the active headset session in one place: refresh state, publish staged values, restore the selected profile, or relaunch the DOPE target."
+                                       Style="{StaticResource SectionCaptionStyle}" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button Content="Refresh Live Session"
+                                        Command="{Binding RefreshHeadsetStatusCommand}"
+                                        Style="{StaticResource PrimaryActionButtonStyle}" />
+                                <Button Content="Apply Live Changes"
+                                        Command="{Binding PublishRuntimeConfigCommand}" />
+                                <Button Content="Restore Profile"
+                                        Command="{Binding ResetRuntimeConfigCommand}" />
+                                <Button Content="Launch Target"
+                                        Command="{Binding LaunchAppCommand}" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding TargetSelectionHeadline}"
+                                       FontWeight="Bold"
+                                       Margin="0,14,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding TargetSelectionDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,6,0,0"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Margin="0,14,0,0"
+                            Background="{Binding LiveSessionProximityLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding LiveSessionProximityLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Proximity + wake"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="{Binding LiveSessionProximitySummary}"
+                                       FontSize="18"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding LiveSessionProximityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LiveSessionProximityDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LiveSessionProximityActionHint}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,10,0,0"
+                                       TextWrapping="Wrap" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button Content="{Binding LiveSessionProximityActionLabel}"
+                                        Command="{Binding ToggleLiveSessionProximityCommand}"
+                                        Style="{StaticResource PrimaryActionButtonStyle}" />
+                                <Button Content="Refresh Snapshot"
+                                        Command="{Binding RefreshHeadsetStatusCommand}" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Margin="0,14,0,0"
+                            Background="{Binding LiveSessionCastLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding LiveSessionCastLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Display 0 cast"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="{Binding LiveSessionCastSummary}"
+                                       FontSize="18"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding LiveSessionCastLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LiveSessionCastDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <Border Style="{StaticResource InsetPanelStyle}"
+                                    Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Capture source"
+                                               Style="{StaticResource LiveMicroLabelStyle}" />
+                                    <TextBlock Text="{Binding LiveSessionCastSourceLabel}"
+                                               Style="{StaticResource LiveCodeStyle}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="scrcpy runtime"
+                                               Style="{StaticResource LiveMicroLabelStyle}"
+                                               Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding LiveSessionCastToolingLabel}"
+                                               Style="{StaticResource LiveCodeStyle}"
+                                               Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button Content="Start Display 0"
+                                        Command="{Binding StartLiveSessionCastCommand}"
+                                        Style="{StaticResource PrimaryActionButtonStyle}" />
+                                <Button Content="Restart Cast"
+                                        Command="{Binding RestartLiveSessionCastCommand}" />
+                                <Button Content="Stop Cast"
+                                        Command="{Binding StopLiveSessionCastCommand}" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PanelBorderStyle}"
+                            Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Live context"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="{Binding LiveTwinPublisherLabel}"
+                                       FontWeight="Bold"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LiveTwinPublisherDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,6,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding HeadsetStatusSummary}"
+                                       FontWeight="Bold"
+                                       Margin="0,12,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding HeadsetStatusDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,6,0,0"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>

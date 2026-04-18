@@ -6,7 +6,8 @@
 param(
     [string]$TaskbarPinnedPath = (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'),
     [string]$PreviewShortcutName = 'DOPE Companion Preview.lnk',
-    [string]$PublishedShortcutName = 'DOPE Companion Published.lnk'
+    [string]$PublishedShortcutName = 'DOPE Companion Published.lnk',
+    [string]$DevShortcutName = 'DOPE Companion Dev.lnk'
 )
 
 Set-StrictMode -Version Latest
@@ -16,6 +17,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $previewIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Preview\dope-companion.ico'
 $publishedIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Published\dope-companion.ico'
 $publishedLauncherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.vbs'
+$devLauncherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App-Local.vbs'
 $scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
 $windowsExplorer = Join-Path $env:SystemRoot 'explorer.exe'
 
@@ -33,6 +35,10 @@ if (-not (Test-Path $publishedIconPath)) {
 
 if (-not (Test-Path $publishedLauncherHostPath)) {
     throw "Published launcher host not found at $publishedLauncherHostPath"
+}
+
+if (-not (Test-Path $devLauncherHostPath)) {
+    throw "Dev launcher host not found at $devLauncherHostPath"
 }
 
 if (-not (Test-Path $scriptHost)) {
@@ -142,6 +148,8 @@ try {
         -DestinationName $PublishedShortcutName `
         -ShortcutKind Published
 
+    $devShortcutPath = Join-Path $TaskbarPinnedPath $DevShortcutName
+
     Set-Shortcut `
         -Shell $shell `
         -ShortcutPath $previewShortcutPath `
@@ -160,12 +168,21 @@ try {
         -IconLocation "$publishedIconPath,0" `
         -Description 'Launch the published local DOPE Companion desktop build'
 
+    Set-Shortcut `
+        -Shell $shell `
+        -ShortcutPath $devShortcutPath `
+        -TargetPath $scriptHost `
+        -Arguments "//B //nologo `"$devLauncherHostPath`" -Configuration Release -NoBuild" `
+        -WorkingDirectory $repoRoot `
+        -IconLocation "$publishedIconPath,0" `
+        -Description 'Launch the repo-local DOPE Companion development build'
+
     Get-CandidateShortcutPaths -Shell $shell | Where-Object {
         $_.Name -like '*Companion*.lnk' -and
-        $_.Name -notin @($PreviewShortcutName, $PublishedShortcutName) -and
+        $_.Name -notin @($PreviewShortcutName, $PublishedShortcutName, $DevShortcutName) -and
         (
             ($_.TargetPath -eq $windowsExplorer -and $_.Arguments -like 'shell:AppsFolder\*!App') -or
-            ($_.TargetPath -eq $scriptHost -and $_.Arguments -like '*Start-Desktop-App.vbs*')
+            ($_.TargetPath -eq $scriptHost -and ($_.Arguments -like '*Start-Desktop-App.vbs*' -or $_.Arguments -like '*Start-Desktop-App-Local.vbs*'))
         )
     } | ForEach-Object {
         if (Test-Path $_.Path) {
@@ -182,5 +199,6 @@ finally {
 [PSCustomObject]@{
     PreviewShortcut = $previewShortcutPath
     PublishedShortcut = $publishedShortcutPath
+    DevShortcut = $devShortcutPath
     PreviewPackageFamily = $previewPackage.PackageFamilyName
 }

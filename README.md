@@ -41,6 +41,9 @@ Current status:
   section with the multi-layer quad controls
 - the bundled scene-profile CSV path is live in the Quest runtime and reports
   the active hotload profile in startup diagnostics
+- the live-session window now includes a public `Display 0` cast control that
+  resizes cleanly by restarting the local `scrcpy` session with the requested
+  bounds
 - the future `quest_twin_*` LSL lane still follows the
   `AstralKarateDojo` transport contract, but that remains separate from the now
   verified bundled CSV hotload path
@@ -62,6 +65,7 @@ It does not ship:
 - scene authoring code from the DOPE repo
 - unpublished private study presets
 - build-time scene mutation logic
+- `scrcpy` itself as a bundled release asset
 
 If the Quest runtime itself needs to change, do that first in
 `C:\Users\tillh\source\repos\Dynamic Oscillatory Pattern Entrainment`, then
