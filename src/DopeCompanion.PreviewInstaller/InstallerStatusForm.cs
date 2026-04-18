@@ -69,7 +69,7 @@ internal sealed class InstallerStatusForm : Form
         MinimumSize = new Size(900, 560);
         Padding = new Padding(1);
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "DOPE Companion Preview Setup";
+        Text = "DOPE Companion Setup";
         var framePanel = new Panel
         {
             BackColor = AppBackgroundColor,
@@ -206,7 +206,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0, 0, 0, 12),
             MaximumSize = new Size(780, 0),
-            Text = "The bootstrapper stages the latest public preview, refreshes the managed Quest tooling cache from Meta, Google, and the upstream scrcpy release, trusts the preview certificate, and then installs or updates the packaged app directly."
+            Text = "The bootstrapper stages the latest packaged release, refreshes the managed Quest tooling cache from Meta, Google, and the upstream scrcpy release, trusts the signing certificate, and then installs or updates the app directly."
         };
         statusLayout.Controls.Add(_detailLabel, 0, 1);
 
@@ -309,7 +309,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0),
             MaximumSize = new Size(800, 0),
-            Text = "This installer stages the latest public preview, refreshes the managed Quest tooling cache, and then installs or updates the packaged app directly.",
+            Text = "This installer stages the latest public packaged app, refreshes the managed Quest tooling cache, and then installs or updates the packaged app directly.",
             TextAlign = ContentAlignment.TopLeft
         };
 

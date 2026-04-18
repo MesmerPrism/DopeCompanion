@@ -17,7 +17,7 @@ The current public workflow centers on:
 - one approved projected-feed Colorama APK
 - Quest connection and launch from Windows
 - a curated projected-feed runtime-config editor
-- the same Pages + Releases + preview-certificate publishing posture used by
+- the same Pages + Releases + certificate-backed publishing posture used by
   the sibling public operator app
 
 The Unity source repo stays separate. This repo is about operator delivery,

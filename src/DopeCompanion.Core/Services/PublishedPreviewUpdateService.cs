@@ -77,7 +77,7 @@ public sealed class PublishedPreviewUpdateService : IDisposable
                 UpdateAvailable: false,
                 CurrentVersion: currentVersion,
                 AvailableVersion: availableVersion,
-                Summary: "Published Windows package updates apply only to installed MSIX builds.",
+                Summary: "Windows package updates apply only to installed MSIX builds.",
                 Detail: "This copy is running unpackaged, so the launch-time package update handoff is not shown here.",
                 AppInstallerUri: AppInstallerDownloadUri,
                 ReleasePageUri: ReleasePageUri);
@@ -93,8 +93,8 @@ public sealed class PublishedPreviewUpdateService : IDisposable
                 ? $"Windows package update {availableVersion} is available."
                 : "Windows package is current.",
             Detail: updateAvailable
-                ? $"Installed package {currentVersion ?? "n/a"} can be updated directly from the published App Installer feed."
-                : $"Installed package {currentVersion ?? "n/a"} matches the latest published .appinstaller metadata.",
+                ? $"Installed package {currentVersion ?? "n/a"} can be updated directly from the App Installer feed."
+                : $"Installed package {currentVersion ?? "n/a"} matches the latest App Installer metadata.",
             AppInstallerUri: AppInstallerDownloadUri,
             ReleasePageUri: ReleasePageUri);
     }

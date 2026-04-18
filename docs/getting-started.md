@@ -1,7 +1,7 @@
 ---
 title: Build From Source
 description: Local source-build path for changing the operator app itself.
-summary: Use this only when you are editing the companion repo. Operators should prefer the packaged Windows preview.
+summary: Use this only when you are editing the companion repo. Operators should prefer the packaged Windows app.
 nav_label: Build From Source
 nav_group: Developer
 nav_order: 70

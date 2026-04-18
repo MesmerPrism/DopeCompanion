@@ -1,12 +1,11 @@
 <#
 .SYNOPSIS
-    Reuses pinned taskbar shortcuts for the DOPE preview and published desktop launch paths.
+    Keeps one packaged DOPE Companion taskbar pin plus one repo-local DOPE Companion Dev pin.
 #>
 [CmdletBinding()]
 param(
     [string]$TaskbarPinnedPath = (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'),
-    [string]$PreviewShortcutName = 'DOPE Companion Preview.lnk',
-    [string]$PublishedShortcutName = 'DOPE Companion Published.lnk',
+    [string]$CompanionShortcutName = 'DOPE Companion.lnk',
     [string]$DevShortcutName = 'DOPE Companion Dev.lnk'
 )
 
@@ -14,28 +13,22 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$previewIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Preview\dope-companion.ico'
-$publishedIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Published\dope-companion.ico'
-$publishedLauncherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.vbs'
+$devIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\dope-companion-dev.ico'
 $devLauncherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App-Local.vbs'
 $repoLocalBuildRoot = Join-Path $repoRoot 'src\DopeCompanion.App\bin'
 $scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
 $windowsExplorer = Join-Path $env:SystemRoot 'explorer.exe'
+$obsoleteShortcutNames = @(
+    'DOPE Companion Preview.lnk',
+    'DOPE Companion Published.lnk'
+)
 
 if (-not (Test-Path $TaskbarPinnedPath)) {
     throw "Pinned taskbar shortcut folder not found at $TaskbarPinnedPath"
 }
 
-if (-not (Test-Path $previewIconPath)) {
-    throw "Preview icon not found at $previewIconPath"
-}
-
-if (-not (Test-Path $publishedIconPath)) {
-    throw "Published icon not found at $publishedIconPath"
-}
-
-if (-not (Test-Path $publishedLauncherHostPath)) {
-    throw "Published launcher host not found at $publishedLauncherHostPath"
+if (-not (Test-Path $devIconPath)) {
+    throw "Dev icon not found at $devIconPath"
 }
 
 if (-not (Test-Path $devLauncherHostPath)) {
@@ -50,16 +43,23 @@ if (-not (Test-Path $windowsExplorer)) {
     throw "explorer.exe was not found at $windowsExplorer"
 }
 
-$previewPackage = Get-AppxPackage *DopeCompanion* |
+$packagedApp = Get-AppxPackage *DopeCompanion* |
     Where-Object { $_.Name -eq 'MesmerPrism.DopeCompanionPreview' } |
     Sort-Object Version -Descending |
     Select-Object -First 1
 
-if ($null -eq $previewPackage) {
-    throw 'The DOPE Companion preview package is not installed, so the preview taskbar pin cannot be created.'
+if ($null -eq $packagedApp) {
+    throw 'The DOPE Companion package is not installed, so the packaged taskbar pin cannot be created.'
 }
 
-function Get-CandidateShortcutPaths {
+if (-not [string]::IsNullOrWhiteSpace($packagedApp.InstallLocation)) {
+    $packagedIconPath = Join-Path $packagedApp.InstallLocation 'DopeCompanion.exe'
+}
+else {
+    $packagedIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\dope-companion.ico'
+}
+
+function Get-ShortcutMetadata {
     param(
         [Parameter(Mandatory = $true)]
         [object]$Shell
@@ -72,46 +72,8 @@ function Get-CandidateShortcutPaths {
             Name = $_.Name
             TargetPath = $shortcut.TargetPath
             Arguments = $shortcut.Arguments
-            Description = $shortcut.Description
-            IconLocation = $shortcut.IconLocation
         }
     }
-}
-
-function Move-ReusableShortcut {
-    param(
-        [Parameter(Mandatory = $true)]
-        [object]$Shell,
-        [Parameter(Mandatory = $true)]
-        [string]$DestinationName,
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('Preview', 'Published')]
-        [string]$ShortcutKind
-    )
-
-    $destinationPath = Join-Path $TaskbarPinnedPath $DestinationName
-    if (Test-Path $destinationPath) {
-        return $destinationPath
-    }
-
-    $candidate = Get-CandidateShortcutPaths -Shell $Shell | Where-Object {
-        $_.Name -like '*Companion*.lnk' -and
-        $_.Name -notlike 'DOPE Companion *.lnk' -and
-        (
-            ($ShortcutKind -eq 'Preview' -and $_.TargetPath -eq $windowsExplorer -and $_.Arguments -like 'shell:AppsFolder\*!App') -or
-            ($ShortcutKind -eq 'Published' -and $_.TargetPath -eq $scriptHost -and $_.Arguments -like '*Start-Desktop-App.vbs*')
-        )
-    } | Select-Object -First 1
-
-    if ($null -ne $candidate) {
-        if (Test-Path $destinationPath) {
-            Remove-Item -Force $destinationPath
-        }
-
-        Move-Item -LiteralPath $candidate.Path -Destination $destinationPath -Force
-    }
-
-    return $destinationPath
 }
 
 function Set-Shortcut {
@@ -139,35 +101,17 @@ function Set-Shortcut {
 
 $shell = New-Object -ComObject WScript.Shell
 try {
-    $previewShortcutPath = Move-ReusableShortcut `
-        -Shell $shell `
-        -DestinationName $PreviewShortcutName `
-        -ShortcutKind Preview
-
-    $publishedShortcutPath = Move-ReusableShortcut `
-        -Shell $shell `
-        -DestinationName $PublishedShortcutName `
-        -ShortcutKind Published
-
+    $companionShortcutPath = Join-Path $TaskbarPinnedPath $CompanionShortcutName
     $devShortcutPath = Join-Path $TaskbarPinnedPath $DevShortcutName
 
     Set-Shortcut `
         -Shell $shell `
-        -ShortcutPath $previewShortcutPath `
+        -ShortcutPath $companionShortcutPath `
         -TargetPath $windowsExplorer `
-        -Arguments "shell:AppsFolder\$($previewPackage.PackageFamilyName)!App" `
+        -Arguments "shell:AppsFolder\$($packagedApp.PackageFamilyName)!App" `
         -WorkingDirectory $env:SystemRoot `
-        -IconLocation "$previewIconPath,0" `
-        -Description 'Launch the installed DOPE Companion preview package'
-
-    Set-Shortcut `
-        -Shell $shell `
-        -ShortcutPath $publishedShortcutPath `
-        -TargetPath $scriptHost `
-        -Arguments "//B //nologo `"$publishedLauncherHostPath`" -SkipInstalledPackage -Refresh" `
-        -WorkingDirectory $repoRoot `
-        -IconLocation "$publishedIconPath,0" `
-        -Description 'Launch the published local DOPE Companion desktop build'
+        -IconLocation "$packagedIconPath,0" `
+        -Description 'Launch the installed DOPE Companion app'
 
     Set-Shortcut `
         -Shell $shell `
@@ -175,15 +119,22 @@ try {
         -TargetPath $scriptHost `
         -Arguments "//B //nologo `"$devLauncherHostPath`" -Configuration Release -NoBuild" `
         -WorkingDirectory $repoRoot `
-        -IconLocation "$publishedIconPath,0" `
+        -IconLocation "$devIconPath,0" `
         -Description 'Launch the repo-local DOPE Companion development build'
 
-    Get-CandidateShortcutPaths -Shell $shell | Where-Object {
+    foreach ($obsoleteName in $obsoleteShortcutNames) {
+        $obsoletePath = Join-Path $TaskbarPinnedPath $obsoleteName
+        if (Test-Path $obsoletePath) {
+            Remove-Item -LiteralPath $obsoletePath -Force
+        }
+    }
+
+    Get-ShortcutMetadata -Shell $shell | Where-Object {
         $_.Name -like '*Companion*.lnk' -and
-        $_.Name -notin @($PreviewShortcutName, $PublishedShortcutName, $DevShortcutName) -and
+        $_.Name -notin @($CompanionShortcutName, $DevShortcutName) -and
         (
             ($_.TargetPath -eq $windowsExplorer -and $_.Arguments -like 'shell:AppsFolder\*!App') -or
-            ($_.TargetPath -eq $scriptHost -and ($_.Arguments -like '*Start-Desktop-App.vbs*' -or $_.Arguments -like '*Start-Desktop-App-Local.vbs*')) -or
+            ($_.TargetPath -eq $scriptHost -and $_.Arguments -like '*Start-Desktop-App-Local.vbs*') -or
             ($_.TargetPath -like "$repoLocalBuildRoot*" -and $_.TargetPath -like '*\DopeCompanion.exe')
         )
     } | ForEach-Object {
@@ -199,8 +150,7 @@ finally {
 }
 
 [PSCustomObject]@{
-    PreviewShortcut = $previewShortcutPath
-    PublishedShortcut = $publishedShortcutPath
+    CompanionShortcut = $companionShortcutPath
     DevShortcut = $devShortcutPath
-    PreviewPackageFamily = $previewPackage.PackageFamilyName
+    PackagedAppFamily = $packagedApp.PackageFamilyName
 }

@@ -7,8 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>DopeCompanion.PreviewInstaller</RootNamespace>
     <AssemblyName>DopeCompanion.PreviewInstaller</AssemblyName>
-    <Description>Guided bootstrapper for installing the DOPE Companion research preview on Windows.</Description>
-    <DopeCompanionBrand Condition="'$(DopeCompanionBrand)' == ''">Preview</DopeCompanionBrand>
+    <Description>Guided bootstrapper for installing DOPE Companion on Windows.</Description>
+    <DopeCompanionBrand Condition="'$(DopeCompanionBrand)' == ''">Published</DopeCompanionBrand>
     <BrandingAssetRoot>..\DopeCompanion.App\Assets\Branding\$(DopeCompanionBrand)</BrandingAssetRoot>
     <ApplicationIcon>$(BrandingAssetRoot)\dope-companion.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>

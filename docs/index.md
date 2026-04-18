@@ -41,7 +41,7 @@ for the packaged app assets.
 
 ## Start Here
 
-1. [Download](download.md) the packaged Windows preview.
+1. [Download](download.md) the packaged Windows app.
 2. [First Session](first-session.md) to connect Quest, install the projected-feed
    Colorama APK, and launch it.
 3. [Runtime Config](runtime-config.md) to tune the public projected-feed
@@ -52,7 +52,7 @@ for the packaged app assets.
 <div class="card-grid">
   <a class="path-card" href="download.md">
     <h3>Install The App</h3>
-    <p>Use the packaged preview with the same Pages + Releases + preview-certificate install posture as the sibling public operator repo.</p>
+    <p>Use the packaged app with the same Pages + Releases + certificate-backed install posture as the sibling public operator repo.</p>
   </a>
   <a class="path-card" href="first-session.md">
     <h3>First Operator Pass</h3>

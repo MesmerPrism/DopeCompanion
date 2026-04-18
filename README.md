@@ -26,9 +26,9 @@ The public operator surface follows the same delivery posture proven in
 
 - GitHub Pages is the stable install and docs surface.
 - GitHub Releases is the binary source of truth.
-- the release asset set includes a preview MSIX, `.appinstaller`, public
+- the release asset set includes the packaged MSIX, `.appinstaller`, public
   `.cer`, guided setup EXE, checksums, and portable zips.
-- signing and certificate handling follow the same preview-certificate
+- signing and certificate handling follow the same certificate-backed
   guidelines documented in the Agent Bureau and the sibling repo.
 
 Current status:

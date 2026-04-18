@@ -13,8 +13,8 @@ operator tooling.
 
 - The repo does not ship Meta's `hzdb` Windows binary in source control or in
   the GitHub release assets.
-- The guided preview installer and the CLI `tooling install-official` command
-  fetch the current published Windows package from Meta's npm publication:
+- The guided installer and the CLI `tooling install-official` command fetch
+  the current published Windows package from Meta's npm publication:
   `@meta-quest/hzdb-win32-x64`.
 - Upstream license/terms:
   [Meta Platform Technologies SDK License Agreement](https://developers.meta.com/horizon/licenses/)
@@ -24,9 +24,9 @@ operator tooling.
 
 - The repo does not ship Google's Android SDK Platform-Tools in source control
   or in the GitHub release assets.
-- The guided preview installer and the CLI `tooling install-official` command
-  fetch the current published Windows package from Google's Android SDK
-  repository metadata and download host.
+- The guided installer and the CLI `tooling install-official` command fetch
+  the current published Windows package from Google's Android SDK repository
+  metadata and download host.
 - Upstream license/terms:
   [Android Software Development Kit License Agreement](https://developer.android.com/studio/releases/platform-tools)
 - This repo does not claim to relicense Android SDK Platform-Tools under MIT.
@@ -35,8 +35,8 @@ operator tooling.
 
 - The public DOPE release does not ship `scrcpy` in source control or as a
   standalone GitHub release asset.
-- The guided preview installer and the CLI `tooling install-official` command
-  fetch the published Windows `scrcpy` bundle from the official upstream GitHub
+- The guided installer and the CLI `tooling install-official` command fetch
+  the published Windows `scrcpy` bundle from the official upstream GitHub
   release and keep it in the managed LocalAppData tool cache.
 - The live `Display 0` cast surface resolves `scrcpy` in this order:
   managed LocalAppData copy, app-local `scrcpy.exe`, app-local

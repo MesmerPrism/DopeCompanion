@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Publishes the guided DOPE Companion research preview setup bootstrapper.
+    Publishes the guided DOPE Companion setup bootstrapper.
 #>
 [CmdletBinding()]
 param(
@@ -10,7 +10,7 @@ param(
     [string]$RuntimeIdentifier = 'win-x64',
     [string]$Version = '0.1.0.0',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
-    [string]$FileName = 'DopeCompanion-Preview-Setup.exe',
+    [string]$FileName = 'DopeCompanion-Setup.exe',
     [string]$PackageCertificatePath,
     [string]$PackageCertificatePassword,
     [string]$PackageCertificateTimestampUrl
@@ -55,13 +55,13 @@ $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelative
 $publishPath = Join-Path $outputPath 'preview-setup-publish'
 
 if (-not (Test-Path $projectPath)) {
-    throw "Preview setup project not found at $projectPath"
+    throw "Setup project not found at $projectPath"
 }
 
 if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath) -and
     [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
     $PackageCertificateTimestampUrl = $defaultTimestampUrl
-    Write-Host "No timestamp URL was provided. Defaulting to $PackageCertificateTimestampUrl for preview-setup signing." -ForegroundColor Yellow
+    Write-Host "No timestamp URL was provided. Defaulting to $PackageCertificateTimestampUrl for setup signing." -ForegroundColor Yellow
 }
 
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
@@ -80,7 +80,7 @@ $publishArgs = @(
     '/p:EnableCompressionInSingleFile=true',
     '/p:DebugType=None',
     '/p:DebugSymbols=false',
-    '/p:DopeCompanionBrand=Preview',
+    '/p:DopeCompanionBrand=Published',
     "/p:Version=$Version",
     "/p:AssemblyVersion=$Version",
     "/p:FileVersion=$Version",
@@ -88,7 +88,7 @@ $publishArgs = @(
     '--output', $publishPath
 )
 
-Write-Host 'Publishing preview setup bootstrapper...' -ForegroundColor Cyan
+Write-Host 'Publishing setup bootstrapper...' -ForegroundColor Cyan
 dotnet @publishArgs | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed for $projectPath with exit code $LASTEXITCODE"
@@ -124,7 +124,7 @@ if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath)) {
 
     $signArgs += $finalPath
 
-    Write-Host 'Signing preview setup bootstrapper...' -ForegroundColor Cyan
+    Write-Host 'Signing setup bootstrapper...' -ForegroundColor Cyan
     & $signToolPath @signArgs | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "signtool failed for $finalPath with exit code $LASTEXITCODE"
@@ -132,4 +132,4 @@ if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath)) {
 }
 
 Remove-Item -Recurse -Force $publishPath
-Write-Host "Copied preview setup bootstrapper to $finalPath" -ForegroundColor Green
+Write-Host "Copied setup bootstrapper to $finalPath" -ForegroundColor Green

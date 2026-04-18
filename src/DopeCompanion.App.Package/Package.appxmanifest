@@ -11,9 +11,9 @@
     Version="0.1.0.0" />
 
   <Properties>
-    <DisplayName>DOPE Companion Preview</DisplayName>
+    <DisplayName>DOPE Companion</DisplayName>
     <PublisherDisplayName>Mesmer Prism</PublisherDisplayName>
-    <Logo>Images\Branding\Preview\StoreLogo.png</Logo>
+    <Logo>Images\Branding\Published\StoreLogo.png</Logo>
   </Properties>
 
   <Dependencies>
@@ -27,11 +27,11 @@
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="DOPE Companion Preview"
+        DisplayName="DOPE Companion"
         Description="Windows operator station for the public DOPE Quest build, scene-profile staging, and remote session control."
         BackgroundColor="transparent"
-        Square150x150Logo="Images\Branding\Preview\Square150x150Logo.png"
-        Square44x44Logo="Images\Branding\Preview\Square44x44Logo.png" />
+        Square150x150Logo="Images\Branding\Published\Square150x150Logo.png"
+        Square44x44Logo="Images\Branding\Published\Square44x44Logo.png" />
     </Application>
   </Applications>
 

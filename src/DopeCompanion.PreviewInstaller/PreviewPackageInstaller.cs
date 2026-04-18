@@ -155,13 +155,13 @@ internal sealed class PreviewPackageInstaller
     {
         if (package is null)
         {
-            detail = "The package is installed, but the helper could not resolve its packaged app registration afterward. Launch DOPE Companion Preview from the Start menu.";
+            detail = "The package is installed, but the helper could not resolve its packaged app registration afterward. Launch DOPE Companion from the Start menu.";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(package.FamilyName))
         {
-            detail = "The package is installed, but Windows did not report a usable package family name for automatic launch. Launch DOPE Companion Preview from the Start menu.";
+            detail = "The package is installed, but Windows did not report a usable package family name for automatic launch. Launch DOPE Companion from the Start menu.";
             return false;
         }
 
@@ -182,7 +182,7 @@ internal sealed class PreviewPackageInstaller
         }
         catch (Exception exception)
         {
-            detail = $"The package is installed, but Windows did not accept the automatic launch request ({exception.Message}). Launch DOPE Companion Preview from the Start menu.";
+            detail = $"The package is installed, but Windows did not accept the automatic launch request ({exception.Message}). Launch DOPE Companion from the Start menu.";
             return false;
         }
     }
@@ -205,7 +205,7 @@ internal sealed class PreviewPackageInstaller
         {
             progress?.Report(new InstallerProgressUpdate(
                 "Installing packaged app",
-                $"Found legacy packaged install {legacyPackage!.Version}. Installing the refreshed preview family first, then removing the legacy registration so Windows stops pointing at the blocked package.",
+                $"Found legacy packaged install {legacyPackage!.Version}. Installing the refreshed package family first, then removing the legacy registration so Windows stops pointing at the blocked package.",
                 88));
         }
         else
@@ -224,7 +224,7 @@ internal sealed class PreviewPackageInstaller
             {
                 progress?.Report(new InstallerProgressUpdate(
                     "Removing legacy packaged app",
-                    $"Installed the refreshed preview family. Removing the legacy packaged install {legacyPackage.Version} so the Start menu only keeps the working preview entry.",
+                    $"Installed the refreshed package family. Removing the legacy packaged install {legacyPackage.Version} so the Start menu only keeps the working DOPE Companion entry.",
                     99));
                 await RemoveExistingPackageAsync(legacyPackage.FullName, cancellationToken).ConfigureAwait(false);
             }
@@ -273,7 +273,7 @@ internal sealed class PreviewPackageInstaller
             var percent = minPercent + (int)Math.Round((maxPercent - minPercent) * (deploymentProgress.percentage / 100d));
             progress?.Report(new InstallerProgressUpdate(
                 $"Installing packaged app ({deploymentProgress.state})",
-                "Windows is downloading and applying the packaged preview directly from the App Installer feed.",
+                "Windows is downloading and applying the packaged app directly from the App Installer feed.",
                 Math.Clamp(percent, minPercent, maxPercent)));
         });
 

@@ -12,6 +12,10 @@ internal static class PackagedTaskbarShortcutRepairService
     private const int ErrorInsufficientBuffer = 122;
     private const string TaskbarPinnedRelativePath = @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar";
     private const string ShortcutNamePrefix = "DOPE Companion";
+    private const string PrimaryShortcutName = "DOPE Companion.lnk";
+    private const string LegacyPreviewShortcutName = "DOPE Companion Preview.lnk";
+    private const string LegacyPublishedShortcutName = "DOPE Companion Published.lnk";
+    private const string DevShortcutName = "DOPE Companion Dev.lnk";
     private const string MainApplicationId = "App";
 
     public static void TryRepairLegacyPinnedTaskbarShortcut()
@@ -52,6 +56,13 @@ internal static class PackagedTaskbarShortcutRepairService
             foreach (var shortcutPath in Directory.EnumerateFiles(taskbarPinnedDirectory, "*.lnk"))
             {
                 var shortcutName = Path.GetFileName(shortcutPath);
+                if (ShouldDeleteShortcut(shortcutName))
+                {
+                    File.Delete(shortcutPath);
+                    log?.Invoke($"Taskbar shortcut repair removed {shortcutPath}.");
+                    continue;
+                }
+
                 if (!ShouldInspectShortcutName(shortcutName))
                 {
                     continue;
@@ -63,8 +74,21 @@ internal static class PackagedTaskbarShortcutRepairService
                     continue;
                 }
 
-                WriteShortcut(shell, shortcutPath, packageFamilyName!);
-                log?.Invoke($"Taskbar shortcut repair updated {shortcutPath} to target {packageFamilyName}.");
+                var desiredShortcutPath = ResolveShortcutPath(taskbarPinnedDirectory, shortcutName);
+                if (!string.Equals(shortcutPath, desiredShortcutPath, StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(desiredShortcutPath))
+                {
+                    File.Delete(desiredShortcutPath);
+                }
+
+                WriteShortcut(shell, desiredShortcutPath, packageFamilyName!);
+                if (!string.Equals(shortcutPath, desiredShortcutPath, StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(shortcutPath))
+                {
+                    File.Delete(shortcutPath);
+                }
+
+                log?.Invoke($"Taskbar shortcut repair updated {desiredShortcutPath} to target {packageFamilyName}.");
             }
         }
         catch (Exception exception)
@@ -83,7 +107,8 @@ internal static class PackagedTaskbarShortcutRepairService
 
     internal static bool ShouldInspectShortcutName(string shortcutName)
         => shortcutName.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) &&
-           shortcutName.StartsWith(ShortcutNamePrefix, StringComparison.OrdinalIgnoreCase);
+           shortcutName.StartsWith(ShortcutNamePrefix, StringComparison.OrdinalIgnoreCase) &&
+           !string.Equals(shortcutName, DevShortcutName, StringComparison.OrdinalIgnoreCase);
 
     internal static bool ShouldRepairShortcut(string shortcutName, string? targetPath, string? arguments)
     {
@@ -92,7 +117,9 @@ internal static class PackagedTaskbarShortcutRepairService
             return false;
         }
 
-        return ContainsLegacyPackageReference(targetPath) || ContainsLegacyPackageReference(arguments);
+        return IsLegacyVisibleShortcutName(shortcutName) ||
+               ContainsLegacyPackageReference(targetPath) ||
+               ContainsLegacyPackageReference(arguments);
     }
 
     internal static string BuildAppsFolderArguments(string packageFamilyName)
@@ -145,7 +172,7 @@ internal static class PackagedTaskbarShortcutRepairService
             shortcutDispatch.TargetPath = Path.Combine(windowsDirectory, "explorer.exe");
             shortcutDispatch.Arguments = BuildAppsFolderArguments(packageFamilyName);
             shortcutDispatch.WorkingDirectory = windowsDirectory;
-            shortcutDispatch.Description = "Launch DOPE Companion Preview";
+            shortcutDispatch.Description = "Launch DOPE Companion";
 
             var iconSource = Environment.ProcessPath;
             if (!string.IsNullOrWhiteSpace(iconSource))
@@ -160,6 +187,17 @@ internal static class PackagedTaskbarShortcutRepairService
             ReleaseComObject(shortcut);
         }
     }
+
+    private static bool ShouldDeleteShortcut(string shortcutName)
+        => string.Equals(shortcutName, LegacyPublishedShortcutName, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsLegacyVisibleShortcutName(string shortcutName)
+        => string.Equals(shortcutName, LegacyPreviewShortcutName, StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolveShortcutPath(string taskbarPinnedDirectory, string shortcutName)
+        => string.Equals(shortcutName, LegacyPreviewShortcutName, StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(taskbarPinnedDirectory, PrimaryShortcutName)
+            : Path.Combine(taskbarPinnedDirectory, shortcutName);
 
     private static string? TryReadCurrentPackageFamilyName()
     {

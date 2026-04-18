@@ -19,7 +19,7 @@ internal static class Program
     private const string AppInstallerDownloadUri = "https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion.appinstaller";
     private const string CertificateDownloadUri = "https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion.cer";
     private const string ReleasePageUri = "https://github.com/MesmerPrism/DopeCompanion/releases";
-    private const string DownloadDirectoryName = "DopeCompanionPreviewSetup";
+    private const string DownloadDirectoryName = "DopeCompanionSetup";
     private const string AppInstallerFileName = "DopeCompanion.appinstaller";
     private const string CertificateFileName = "DopeCompanion.cer";
 
@@ -50,7 +50,7 @@ internal static class Program
     {
         progress.Report(new InstallerProgressUpdate(
             "Preparing guided setup",
-            "Creating a temporary staging folder for the Dope-focused research preview installer.",
+            "Creating a temporary staging folder for the DOPE Companion guided installer.",
             5));
 
         var downloadDirectory = Path.Combine(Path.GetTempPath(), DownloadDirectoryName);
@@ -63,13 +63,13 @@ internal static class Program
 
         progress.Report(new InstallerProgressUpdate(
             "Downloading trust certificate",
-            "Pulling the preview signing certificate from the latest public GitHub release.",
+            "Pulling the signing certificate from the latest public GitHub release.",
             25));
         await DownloadFileAsync(httpClient, CertificateDownloadUri, certificatePath, cancellationToken);
 
         progress.Report(new InstallerProgressUpdate(
             "Downloading App Installer metadata",
-            "Fetching the current .appinstaller feed that points at the latest Dope-focused preview package.",
+            "Fetching the current .appinstaller feed that points at the latest packaged DOPE Companion build.",
             50));
         await DownloadFileAsync(httpClient, AppInstallerDownloadUri, appInstallerPath, cancellationToken);
 
@@ -88,13 +88,13 @@ internal static class Program
         catch (Exception toolingException)
         {
             toolingWarning =
-                "The preview package can still be installed, but the managed Quest tooling cache could not be refreshed automatically. " +
+                "The package can still be installed, but the managed Quest tooling cache could not be refreshed automatically. " +
                 $"{toolingException.Message}";
         }
 
         progress.Report(new InstallerProgressUpdate(
-            "Trusting the preview certificate",
-            "Adding the public preview certificate to Trusted People so the MSIX package can be installed cleanly.",
+            "Trusting the certificate",
+            "Adding the public signing certificate to Trusted People so the MSIX package can be installed cleanly.",
             85));
         TrustCertificate(certificatePath);
 
@@ -135,7 +135,7 @@ internal static class Program
         if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
         {
             throw new InvalidOperationException(
-                "Administrator permission is required to trust the preview signing certificate. " +
+                "Administrator permission is required to trust the signing certificate. " +
                 "Run the setup again and accept the Windows UAC prompt.");
         }
     }
@@ -162,7 +162,7 @@ internal static class Program
 
         if (!alreadyTrusted)
         {
-            // Research preview packages are self-signed, so the public cert must be trusted explicitly.
+            // Public packaged builds are self-signed, so the public cert must be trusted explicitly.
             store.Add(certificate);
         }
     }
@@ -170,14 +170,14 @@ internal static class Program
     private static void ShowError(Exception exception)
     {
         var message =
-            "DOPE Companion Preview Setup could not finish.\n\n" +
+            "DOPE Companion Setup could not finish.\n\n" +
             $"{exception.Message}\n\n" +
-            "If the public preview release is not available yet, open the release page or use the source-build path instead.\n" +
+            "If the public packaged release is not available yet, open the release page or use the source-build path instead.\n" +
             $"{ReleasePageUri}";
 
         MessageBox.Show(
             message,
-            "DOPE Companion Preview Setup",
+            "DOPE Companion Setup",
             MessageBoxButtons.OK,
             MessageBoxIcon.Error);
     }
@@ -209,11 +209,11 @@ internal static class Program
         var installDetail = installResult switch
         {
             { RemovedPreviousInstall: true } => $"The existing packaged install {installResult.PreviousVersion ?? "n/a"} blocked the in-place update, so the helper removed it and installed {installResult.InstalledVersion} cleanly.",
-            { RemovedLegacyInstall: true } => $"Windows installed the refreshed preview package {installResult.InstalledVersion} and removed the legacy packaged install {installResult.PreviousVersion ?? "n/a"} so the working Start-menu entry stays on DOPE Companion Preview.",
+            { RemovedLegacyInstall: true } => $"Windows installed the refreshed package {installResult.InstalledVersion} and removed the legacy packaged install {installResult.PreviousVersion ?? "n/a"} so the working Start-menu entry stays on DOPE Companion.",
             { UpdatedExistingInstall: true } when string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
                 => "The packaged install already matched the published release. The helper refreshed that install cleanly.",
             { UpdatedExistingInstall: true } => $"Windows updated the packaged install from {installResult.PreviousVersion ?? "n/a"} to {installResult.InstalledVersion} and closed the running app first if needed.",
-            _ => $"The packaged preview was installed directly from the published App Installer feed and is ready to launch from the Start menu as DOPE Companion Preview {installResult.InstalledVersion}."
+            _ => $"The packaged app was installed directly from the published App Installer feed and is ready to launch from the Start menu as DOPE Companion {installResult.InstalledVersion}."
         };
 
         return string.IsNullOrWhiteSpace(launchDetail)

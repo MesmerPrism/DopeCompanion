@@ -1,6 +1,6 @@
 ---
 title: Download & Install
-description: Install the DOPE Companion Windows preview from the latest public release, or fall back to a source build if you are changing the operator app itself.
+description: Install the DOPE Companion Windows app from the latest public release, or fall back to a source build if you are changing the operator app itself.
 summary: Use the same guided helper EXE and manual certificate plus App Installer fallback used by the sibling public operator repo.
 nav_label: Download
 nav_group: Start Here
@@ -10,16 +10,16 @@ layout: focused
 
 # Download & Install
 
-The intended public install path is the packaged Windows preview, not a repo
+The intended public install path is the packaged Windows app, not a repo
 checkout.
 
-The release asset set follows the same public preview rules used by the sibling
+The release asset set follows the same public packaged-app rules used by the sibling
 operator repo:
 
 - guided setup helper EXE
 - `.msix`
 - `.appinstaller`
-- preview signing `.cer`
+- signing `.cer`
 - portable zip
 - `SHA256SUMS.txt`
 
@@ -38,20 +38,20 @@ The public release page is:
 - [MesmerPrism/DopeCompanion Releases](https://github.com/MesmerPrism/DopeCompanion/releases)
 
 If a direct asset link returns `404`, open the Releases page first. That means
-the latest packaged preview has not been published yet.
+the latest packaged build has not been published yet.
 
 <div class="download-start">
   <section class="download-path download-path-primary">
     <h2>Guided Install</h2>
-    <p>Use the helper EXE when the latest packaged preview release is available.</p>
+    <p>Use the helper EXE when the latest packaged release is available.</p>
     <div class="action-row">
-      <a class="button primary" href="https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion-Preview-Setup.exe">Download Guided Install Helper</a>
+      <a class="button primary" href="https://github.com/MesmerPrism/DopeCompanion/releases/latest/download/DopeCompanion-Setup.exe">Download Guided Install Helper</a>
       <a class="button" href="https://github.com/MesmerPrism/DopeCompanion/releases">Open Releases</a>
     </div>
     <ol class="step-list">
-      <li>Download <code>DopeCompanion-Preview-Setup.exe</code>.</li>
-      <li>Let the helper trust the preview certificate and install or update the packaged app.</li>
-      <li>Launch <code>DOPE Companion Preview</code> from the Start menu if Windows does not open it automatically.</li>
+      <li>Download <code>DopeCompanion-Setup.exe</code>.</li>
+      <li>Let the helper trust the signing certificate and install or update the packaged app.</li>
+      <li>Launch <code>DOPE Companion</code> from the Start menu if Windows does not open it automatically.</li>
       <li>After first launch, the app prepares a host-visible local agent workspace with the bundled CLI outside <code>WindowsApps</code>. Open <code>Windows Environment</code> if you want to inspect that path.</li>
       <li>Open <code>Windows Environment</code> and run <code>Full Diagnostic Harness</code> when you need one shareable acceptance bundle for remote support.</li>
       <li>Continue with <a href="first-session.html">First Session</a>.</li>
@@ -81,7 +81,7 @@ the latest packaged preview has not been published yet.
 - Windows 10 or later
 - a Quest headset with developer mode enabled
 - one USB cable for the first ADB trust step
-- local admin approval for the preview certificate trust step
+- local admin approval for the certificate trust step
 
 ## Guided Support Bundle
 

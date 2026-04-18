@@ -55,6 +55,15 @@ public sealed class PackagedTaskbarShortcutRepairServiceTests
             targetPath: @"C:\Windows\explorer.exe",
             arguments: @"shell:AppsFolder\MesmerPrism.DopeCompanionPreview_zncnfcs118r0y!App");
 
-        Assert.False(shouldRepair);
+        Assert.True(shouldRepair);
+    }
+
+    [Fact]
+    public void ShouldInspectShortcutName_ignores_dev_pin()
+    {
+        var shouldInspect = PackagedTaskbarShortcutRepairService.ShouldInspectShortcutName(
+            "DOPE Companion Dev.lnk");
+
+        Assert.False(shouldInspect);
     }
 }

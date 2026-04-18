@@ -10,8 +10,10 @@ param(
     [string]$Platform = 'x64',
     [string]$Version = '0.1.0.0',
     [string]$PackageId = 'MesmerPrism.DopeCompanionPreview',
+    [ValidateSet('Published', 'Preview')]
+    [string]$BrandVariant = 'Published',
     [string]$Publisher = 'CN=MesmerPrism',
-    [string]$DisplayName = 'DOPE Companion Preview',
+    [string]$DisplayName = 'DOPE Companion',
     [string]$PublisherDisplayName = 'Mesmer Prism',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
     [string]$PackageFileName = 'DopeCompanion.msix',
@@ -336,19 +338,6 @@ function Set-ManifestValue {
     $node.Value = $Value
 }
 
-function Resolve-DopeCompanionBrand {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PackageId
-    )
-
-    if ($PackageId -match 'preview') {
-        return 'Preview'
-    }
-
-    return 'Published'
-}
-
 if (([string]::IsNullOrWhiteSpace($AppInstallerUri)) -xor ([string]::IsNullOrWhiteSpace($MainPackageUri))) {
     throw 'AppInstallerUri and MainPackageUri must either both be provided or both be omitted.'
 }
@@ -428,7 +417,6 @@ try {
     $namespaceManager = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
     $namespaceManager.AddNamespace('appx', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
     $namespaceManager.AddNamespace('uap', 'http://schemas.microsoft.com/appx/manifest/uap/windows10')
-    $brandVariant = Resolve-DopeCompanionBrand -PackageId $PackageId
     $brandImageRoot = "Images\Branding\$brandVariant"
 
     Set-ManifestValue -Manifest $manifest -XPath '/appx:Package/appx:Identity/@Name' -Value $PackageId -NamespaceManager $namespaceManager

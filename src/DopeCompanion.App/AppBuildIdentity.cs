@@ -21,8 +21,8 @@ internal static class AppBuildIdentity
         if (packagedIdentity is not null)
         {
             return new AppBuildStamp(
-                $"Published install {packagedIdentity.Version}",
-                $"Installed package {packagedIdentity.Name}. Published MSIX updates should target this copy.",
+                $"Installed app {packagedIdentity.Version}",
+                "DOPE Companion is running from the installed Windows package. App Installer updates should target this copy.",
                 packagedIdentity.Version,
                 IsPackaged: true);
         }

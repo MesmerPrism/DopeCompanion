@@ -9,7 +9,7 @@
 [CmdletBinding()]
 param(
     [string]$Subject = 'CN=MesmerPrism',
-    [string]$FriendlyName = 'DOPE Companion Preview Signing',
+    [string]$FriendlyName = 'DOPE Companion Signing',
     [int]$ValidYears = 3,
     [string]$OutputRelativePath = 'artifacts\preview-signing',
     [string]$PfxFileName = 'DopeCompanion-preview-signing.pfx',
@@ -80,7 +80,7 @@ $plainPassword = [System.Net.NetworkCredential]::new('', $Password).Password
     $plainPassword,
     [System.Text.UTF8Encoding]::new($false))
 
-Write-Host "$actionLabel DOPE Companion preview certificate bundle." -ForegroundColor Green
+Write-Host "$actionLabel DOPE Companion certificate bundle." -ForegroundColor Green
 Write-Host "Signer thumbprint: $($cert.Thumbprint)" -ForegroundColor Green
 Write-Host "PFX : $pfxPath"
 Write-Host "CER : $cerPath"

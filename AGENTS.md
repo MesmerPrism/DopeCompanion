@@ -70,10 +70,10 @@ then refresh the mirrored APK here.
 
 ## Release / Certificate Rules
 
-- Follow the same Pages + Releases + preview-certificate posture documented for
+- Follow the same Pages + Releases + certificate-backed posture documented for
   `DopeCompanion`.
 - Ship the release asset set together:
-  - preview setup EXE
+  - setup EXE
   - `.msix`
   - `.appinstaller`
   - `.cer`

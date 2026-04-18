@@ -181,14 +181,15 @@ def save_icon_family(variant_name: str) -> None:
 
 def copy_default_assets() -> None:
     published_root = APP_ASSETS / "Branding" / "Published"
-    preview_package_root = PACKAGE_IMAGES / "Branding" / "Preview"
+    preview_root = APP_ASSETS / "Branding" / "Preview"
+    published_package_root = PACKAGE_IMAGES / "Branding" / "Published"
 
     (APP_ASSETS / "dope-companion.png").write_bytes((published_root / "dope-companion.png").read_bytes())
     (APP_ASSETS / "dope-companion.ico").write_bytes((published_root / "dope-companion.ico").read_bytes())
-    (APP_ASSETS / "dope-companion-dev.ico").write_bytes((published_root / "dope-companion.ico").read_bytes())
+    (APP_ASSETS / "dope-companion-dev.ico").write_bytes((preview_root / "dope-companion.ico").read_bytes())
 
     for name in ("StoreLogo.png", "Square44x44Logo.png", "Square150x150Logo.png"):
-        (PACKAGE_IMAGES / name).write_bytes((preview_package_root / name).read_bytes())
+        (PACKAGE_IMAGES / name).write_bytes((published_package_root / name).read_bytes())
 
 
 def main() -> None:

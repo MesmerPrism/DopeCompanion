@@ -24,7 +24,7 @@ a Quest headset from Windows.
 ## Operator Path
 
 1. Plug the Quest in over USB and approve USB debugging in-headset.
-2. Open `DOPE Companion Preview`.
+2. Open `DOPE Companion`.
 3. Run `Probe USB` or the equivalent device snapshot action.
 4. Confirm the bundled projected-feed Colorama APK is selected in `Quest Library`.
 5. Apply either the `DOPE Projected Feed Balanced` or

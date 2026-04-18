@@ -6,7 +6,7 @@
 param(
     [string]$DesktopPath = [Environment]::GetFolderPath('Desktop'),
     [string]$StartMenuPath = [Environment]::GetFolderPath('Programs'),
-    [string]$ShortcutName = 'DOPE Companion (Local Dev).lnk'
+    [string]$ShortcutName = 'DOPE Companion Dev.lnk'
 )
 
 Set-StrictMode -Version Latest
@@ -15,13 +15,14 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $launcherScriptPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App-Local.ps1'
 $launcherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App-Local.vbs'
-$iconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\Branding\Published\dope-companion.ico'
+$iconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\dope-companion-dev.ico'
 $scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
 $arguments = "//B //nologo `"$launcherHostPath`""
 $obsoleteLaunchers = @(
     'DOPE Companion Local.lnk',
     'DOPE Companion (Local).lnk',
     'DOPE Companion (Repo Build).lnk',
+    'DOPE Companion (Local Dev).lnk',
     $ShortcutName
 )
 

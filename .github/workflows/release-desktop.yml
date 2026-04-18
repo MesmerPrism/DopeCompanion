@@ -1,4 +1,4 @@
-name: Release Windows DOPE Preview
+name: Release Windows DOPE Companion
 
 on:
   push:
@@ -19,10 +19,10 @@ jobs:
     runs-on: windows-2025-vs2026
     env:
       PACKAGE_ID: MesmerPrism.DopeCompanionPreview
-      PACKAGE_DISPLAY_NAME: DOPE Companion Preview
+      PACKAGE_DISPLAY_NAME: DOPE Companion
       PACKAGE_PUBLISHER_DISPLAY_NAME: Mesmer Prism
       PACKAGE_FILE_NAME: DopeCompanion.msix
-      PREVIEW_SETUP_FILE_NAME: DopeCompanion-Preview-Setup.exe
+      PREVIEW_SETUP_FILE_NAME: DopeCompanion-Setup.exe
       PINNED_PREVIEW_SETUP_TAG: v0.1.1
       APPINSTALLER_FILE_NAME: DopeCompanion.appinstaller
       CERTIFICATE_FILE_NAME: DopeCompanion.cer
@@ -150,7 +150,7 @@ jobs:
           [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
           "path=$certificatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Build signed Windows preview package
+      - name: Build signed Windows package
         shell: pwsh
         env:
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
@@ -179,7 +179,7 @@ jobs:
 
           & powershell -ExecutionPolicy Bypass -File .\tools\app\Build-App-Package.ps1 @args
 
-      - name: Publish preview setup bootstrapper
+      - name: Publish setup bootstrapper
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -193,7 +193,8 @@ jobs:
             New-Item -ItemType Directory -Force -Path artifacts\windows-installer | Out-Null
             gh release view $env:PINNED_PREVIEW_SETUP_TAG --repo $env:GITHUB_REPOSITORY *> $null
             if ($LASTEXITCODE -eq 0) {
-              Write-Host "Reusing pinned preview setup helper from $env:PINNED_PREVIEW_SETUP_TAG" -ForegroundColor Cyan
+              $reusePinnedHelper = $true
+              Write-Host "Reusing pinned setup helper from $env:PINNED_PREVIEW_SETUP_TAG when the renamed asset is available" -ForegroundColor Cyan
               gh release download $env:PINNED_PREVIEW_SETUP_TAG `
                 --repo $env:GITHUB_REPOSITORY `
                 --dir artifacts\windows-installer `
@@ -201,11 +202,21 @@ jobs:
                 --clobber
 
               if ($LASTEXITCODE -ne 0) {
-                throw "Failed to download pinned preview setup helper from $env:PINNED_PREVIEW_SETUP_TAG"
+                Write-Host "Pinned setup helper asset $env:PREVIEW_SETUP_FILE_NAME is not present on $env:PINNED_PREVIEW_SETUP_TAG. Building a fresh helper instead." -ForegroundColor Yellow
+                $reusePinnedHelper = $false
+              }
+
+              if (-not $reusePinnedHelper) {
+                & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
+                  -Version '${{ steps.version.outputs.package_version }}' `
+                  -FileName $env:PREVIEW_SETUP_FILE_NAME `
+                  -PackageCertificatePath '${{ steps.certificate.outputs.path }}' `
+                  -PackageCertificatePassword $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD `
+                  -PackageCertificateTimestampUrl $env:WINDOWS_PACKAGE_TIMESTAMP_URL
               }
             }
             else {
-              Write-Host "Pinned preview setup helper $env:PINNED_PREVIEW_SETUP_TAG is not available yet. Building a first-release helper signed with the package certificate instead." -ForegroundColor Yellow
+              Write-Host "Pinned setup helper $env:PINNED_PREVIEW_SETUP_TAG is not available yet. Building a first-release helper signed with the package certificate instead." -ForegroundColor Yellow
               & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
                 -Version '${{ steps.version.outputs.package_version }}' `
                 -FileName $env:PREVIEW_SETUP_FILE_NAME `
@@ -283,7 +294,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tagName = '${{ steps.version.outputs.tag_name }}'
-          $releaseTitle = "DOPE Companion Projected-Feed Preview ${{ steps.version.outputs.package_version }}"
+          $releaseTitle = "DOPE Companion ${{ steps.version.outputs.package_version }}"
           $assets = @(
             "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME",
             "artifacts\windows-installer\$env:PACKAGE_FILE_NAME",

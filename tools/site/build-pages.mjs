@@ -134,7 +134,7 @@ function renderPage(page, pages) {
         : `<aside class="hero-aside panel">
         <h2>New here?</h2>
         <ol class="quick-steps">
-          <li>Install the Windows preview package or guided setup helper.</li>
+          <li>Install DOPE Companion with the guided setup helper or App Installer package.</li>
           <li>Make sure the Quest is in developer mode, then approve USB debugging once on that headset.</li>
           <li>The public package already includes the DOPE projected-feed Colorama APK, curated device profiles, and scene profiles, so you can connect Quest and run from Windows without a separate APK handoff.</li>
         </ol>
