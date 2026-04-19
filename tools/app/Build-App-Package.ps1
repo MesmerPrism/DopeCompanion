@@ -9,7 +9,7 @@ param(
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
     [string]$Version = '0.1.0.0',
-    [string]$PackageId = 'MesmerPrism.DopeCompanionPreview',
+    [string]$PackageId = 'MesmerPrism.DopeCompanionDev',
     [ValidateSet('Published', 'Preview')]
     [string]$BrandVariant = 'Published',
     [string]$Publisher = 'CN=MesmerPrism',
@@ -27,6 +27,7 @@ param(
     [switch]$RefreshBundledDopeApk,
     [string]$BundledDopeApkSourcePath,
     [string]$BundledDopeApkVersion,
+    [switch]$AllowPublicPreviewPackageId,
     [switch]$Unsigned
 )
 
@@ -34,6 +35,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $defaultTimestampUrl = 'http://timestamp.digicert.com'
+$publicPreviewPackageId = 'MesmerPrism.DopeCompanionPreview'
+$defaultDevPackageId = 'MesmerPrism.DopeCompanionDev'
+
+if ($PackageId -eq $defaultDevPackageId -and $DisplayName -eq 'DOPE Companion') {
+    $DisplayName = 'DOPE Companion Dev'
+}
+
+if ($PackageId -eq $publicPreviewPackageId -and $env:GITHUB_ACTIONS -ne 'true' -and -not $AllowPublicPreviewPackageId) {
+    throw "Local packaging into the public preview package id '$publicPreviewPackageId' is blocked by default. Re-run with -AllowPublicPreviewPackageId only when you intentionally want to replace the public preview install."
+}
 
 function Find-MSBuild {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'

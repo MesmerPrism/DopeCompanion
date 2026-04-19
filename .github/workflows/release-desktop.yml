@@ -67,6 +67,45 @@ jobs:
           "tag_name=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "package_version=$packageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      - name: Validate release version ordering
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $currentTag = '${{ steps.version.outputs.tag_name }}'
+          $currentVersion = [Version]'${{ steps.version.outputs.package_version }}'
+
+          $releases = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+          $publishedVersions = @()
+
+          foreach ($release in $releases) {
+            if ($release.draft -or $release.prerelease) {
+              continue
+            }
+
+            if ($release.tag_name -match '^v(?<SemVer>\d+\.\d+\.\d+)$') {
+              $publishedVersions += [PSCustomObject]@{
+                Tag     = $release.tag_name
+                Version = [Version]"$($Matches.SemVer).0"
+              }
+            }
+          }
+
+          if ($publishedVersions.Count -eq 0) {
+            Write-Host 'No previously published releases found. Skipping monotonic version check.' -ForegroundColor Yellow
+            exit 0
+          }
+
+          $highestPublished = $publishedVersions |
+            Sort-Object -Property Version -Descending |
+            Select-Object -First 1
+
+          if ($currentVersion -le $highestPublished.Version) {
+            throw "Refusing to publish $currentTag ($currentVersion) because the latest published release is $($highestPublished.Tag) ($($highestPublished.Version)). Public release versions must increase monotonically."
+          }
+
+          Write-Host "Release version ordering validated: $currentTag ($currentVersion) is newer than $($highestPublished.Tag) ($($highestPublished.Version))." -ForegroundColor Green
+
       - name: Validate signing configuration
         shell: pwsh
         env:
