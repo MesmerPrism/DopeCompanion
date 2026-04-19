@@ -44,6 +44,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         "projected_feed_displacement_audio_range_boost",
         "projected_feed_gradient_audio_speed_boost"
     ];
+    private const string LiveSessionCastFocusLayerKey = "projected_feed_focus_layer";
+    private const string LiveSessionCastAudioTriggerKey = "projected_feed_focus_layer_audio_trigger_enabled";
+    private static readonly LiveSessionCastFocusLayerDefinition[] LiveSessionCastFocusLayerDefinitions =
+    [
+        new("-1", "Auto", "Follow the APK's audio-reactive layer cycling."),
+        new("0", "Composite", "Show the final projected-feed composite layer."),
+        new("1", "Raw Feed", "Show the raw live passthrough feed."),
+        new("2", "Pre-Blur", "Show the pre-blurred brightness field."),
+        new("3", "Raw Strength", "Show the raw displacement-strength layer."),
+        new("4", "Blurred Strength", "Show the blurred displacement-strength layer."),
+        new("5", "Depth", "Show the projected-feed depth visualization layer.")
+    ];
 
     private readonly QuestSessionKitCatalogLoader _catalogLoader = new();
     private readonly StudyShellCatalogLoader _studyShellCatalogLoader = new();
@@ -65,6 +77,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly Dispatcher _dispatcher;
     private readonly Dictionary<string, string> _apkOverrides = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _liveSessionRequestedValues = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TwinModeCommand> _twinCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         ["twin-start"] = new TwinModeCommand("twin-start", "Start twin session"),
@@ -200,6 +213,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _liveSessionRuntimeReadbackSummary = "Waiting for live runtime JSON.";
     private string _liveSessionRuntimeReadbackDetail = "Connect the live DOPE runtime and let it publish quest_twin_state before expecting current projected-feed values here.";
     private IReadOnlyDictionary<string, string> _liveSessionDeviceRuntimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyDictionary<string, string> _liveSessionFailedPublishValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private string _liveSessionFailedPublishDetail = string.Empty;
+    private LiveSessionSettingViewModel? _liveSessionCastFocusLayerSetting;
+    private LiveSessionSettingViewModel? _liveSessionCastAudioTriggerSetting;
     private LiveSessionWindow? _liveSessionWindow;
     private FullDiagnosticHarnessWindow? _fullDiagnosticHarnessWindow;
     private FullDiagnosticHarnessWindowViewModel? _fullDiagnosticHarnessWindowViewModel;
@@ -272,6 +289,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ApplyDopeParticleTuningCommand = new AsyncRelayCommand(ApplyDopeParticleTuningAsync);
         ApplyTwinPresetCommand = new AsyncRelayCommand(ApplyTwinPresetAsync);
         PublishRuntimeConfigCommand = new AsyncRelayCommand(PublishRuntimeConfigAsync);
+        ApplyLiveSessionRuntimeConfigCommand = new AsyncRelayCommand(ApplyLiveSessionRuntimeConfigAsync);
         SendTwinCommandCommand = new AsyncRelayCommand(SendTwinCommandAsync);
         RunUtilityCommand = new AsyncRelayCommand(RunUtilityAsync);
         AnalyzeWindowsEnvironmentCommand = new AsyncRelayCommand(AnalyzeWindowsEnvironmentAsync);
@@ -289,6 +307,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         StartLiveSessionCastCommand = new AsyncRelayCommand(StartLiveSessionCastAsync);
         StopLiveSessionCastCommand = new AsyncRelayCommand(StopLiveSessionCastAsync, () => _questDisplayCastService.IsRunning);
         RestartLiveSessionCastCommand = new AsyncRelayCommand(RestartLiveSessionCastAsync);
+        SelectLiveSessionCastFocusLayerCommand = new AsyncRelayCommand(SelectLiveSessionCastFocusLayerAsync, CanSelectLiveSessionCastFocusLayer);
+        ToggleLiveSessionCastAudioTriggerCommand = new AsyncRelayCommand(ToggleLiveSessionCastAudioTriggerAsync, CanToggleLiveSessionCastAudioTrigger);
+        foreach (var definition in LiveSessionCastFocusLayerDefinitions)
+        {
+            LiveSessionCastFocusLayerOptions.Add(new LiveSessionCastFocusLayerOptionViewModel(
+                definition.Value,
+                definition.Label,
+                definition.Description));
+        }
+
         RefreshDopeParticleTuningState();
         RefreshLiveSessionEditors();
         RefreshLiveSessionCastState();
@@ -440,6 +468,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<LiveSessionSettingViewModel> LiveSessionSecondarySettings { get; } = new();
 
+    public ObservableCollection<LiveSessionSettingViewModel> LiveSessionCastSidebarSettings { get; } = new();
+
+    public ObservableCollection<LiveSessionCastFocusLayerOptionViewModel> LiveSessionCastFocusLayerOptions { get; } = new();
+
     public ObservableCollection<ActionChoice<QuestUtilityAction>> UtilityActions { get; } = new(
     [
         new ActionChoice<QuestUtilityAction>("Home", "Return to the Quest launcher.", QuestUtilityAction.Home),
@@ -504,6 +536,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public AsyncRelayCommand PublishRuntimeConfigCommand { get; }
 
+    public AsyncRelayCommand ApplyLiveSessionRuntimeConfigCommand { get; }
+
     public AsyncRelayCommand SendTwinCommandCommand { get; }
 
     public AsyncRelayCommand RunUtilityCommand { get; }
@@ -537,6 +571,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand StopLiveSessionCastCommand { get; }
 
     public AsyncRelayCommand RestartLiveSessionCastCommand { get; }
+
+    public AsyncRelayCommand SelectLiveSessionCastFocusLayerCommand { get; }
+
+    public AsyncRelayCommand ToggleLiveSessionCastAudioTriggerCommand { get; }
 
     public string CatalogStatus
     {
@@ -1300,7 +1338,36 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string LiveSessionHeaderDetail
         => SelectedApp is null
             ? "Refresh Device Snapshot to adopt the current headset app automatically, or choose the DOPE runtime manually in Quest Library."
-            : $"{SelectedApp.PackageId}. Publish pushes the staged values on quest_hotload_config while live readback comes from quest_twin_state.";
+            : $"{SelectedApp.PackageId}. Live-session Apply and cast-bar controls push runtime_overrides.csv directly to the headset, while live readback still prefers quest_twin_state when it is available.";
+
+    public string LiveSessionCastFocusLayerStatusLabel
+        => _liveSessionCastFocusLayerSetting is null
+            ? "Layer focus unavailable."
+            : $"{ResolveLiveSessionCastFocusLayerLabel(ReadLiveSessionCastFocusLayerValue())} | {FormatLiveSessionSidebarStateLabel(_liveSessionCastFocusLayerSetting.SidebarState)}";
+
+    public string LiveSessionCastFocusLayerStatusDetail
+        => _liveSessionCastFocusLayerSetting?.SidebarStateDetail
+            ?? "Select a runtime config profile to enable cast focus layer control.";
+
+    public LiveSessionSettingSidebarState LiveSessionCastFocusLayerStatusState
+        => _liveSessionCastFocusLayerSetting?.SidebarState ?? LiveSessionSettingSidebarState.Staged;
+
+    public string LiveSessionCastAudioTriggerStatusLabel
+        => _liveSessionCastAudioTriggerSetting is null
+            ? "Audio trigger unavailable."
+            : $"{ResolveLiveSessionCastAudioTriggerLabel(ReadLiveSessionCastAudioTriggerValue())} | {FormatLiveSessionSidebarStateLabel(_liveSessionCastAudioTriggerSetting.SidebarState)}";
+
+    public string LiveSessionCastAudioTriggerStatusDetail
+        => _liveSessionCastAudioTriggerSetting?.SidebarStateDetail
+            ?? "Select a runtime config profile to enable cast audio-trigger control.";
+
+    public LiveSessionSettingSidebarState LiveSessionCastAudioTriggerStatusState
+        => _liveSessionCastAudioTriggerSetting?.SidebarState ?? LiveSessionSettingSidebarState.Staged;
+
+    public string LiveSessionCastAudioTriggerActionLabel
+        => ReadLiveSessionCastAudioTriggerEnabled()
+            ? "Turn Off"
+            : "Turn On";
 
     public string LiveSessionRuntimeReadbackSummary
     {
@@ -1651,6 +1718,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         CloseLiveSessionCastOverlayWindow();
         DisposeLiveSessionSettings(LiveSessionPrimarySettings);
         DisposeLiveSessionSettings(LiveSessionSecondarySettings);
+        _liveSessionCastFocusLayerSetting?.Dispose();
+        _liveSessionCastAudioTriggerSetting?.Dispose();
         _questDisplayCastService.Dispose();
         ActiveStudyShell?.Dispose();
 
@@ -3158,7 +3227,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var window = new DisplayCastOverlayWindow(_questDisplayCastService, StopLiveSessionCastCommand);
+        var window = new DisplayCastOverlayWindow(_questDisplayCastService, StopLiveSessionCastCommand, this);
         window.Closed += OnLiveSessionCastOverlayWindowClosed;
         _liveSessionCastOverlayWindow = window;
         window.Show();
@@ -3316,6 +3385,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             if (outcome.Kind == OperationOutcomeKind.Success && File.Exists(localPath))
             {
                 _liveSessionDeviceRuntimeValues = ParseRuntimeOverrideCsv(localPath);
+                ReplaceLiveSessionRequestedValues(_liveSessionDeviceRuntimeValues);
             }
             else
             {
@@ -3365,7 +3435,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         ResetLiveSessionSettings(LiveSessionPrimarySettings, LiveSessionPrimarySettingKeys);
         ResetLiveSessionSettings(LiveSessionSecondarySettings, LiveSessionSecondarySettingKeys);
+        ResetLiveSessionCastFocusLayerSetting();
+        ResetLiveSessionCastAudioTriggerSetting();
+        LiveSessionCastSidebarSettings.Clear();
+        foreach (var setting in LiveSessionPrimarySettings)
+        {
+            LiveSessionCastSidebarSettings.Add(setting);
+        }
+
+        foreach (var setting in LiveSessionSecondarySettings)
+        {
+            LiveSessionCastSidebarSettings.Add(setting);
+        }
+
         RefreshLiveSessionReportedValues();
+        RefreshLiveSessionRequestTracking();
     }
 
     private void RefreshLiveSessionReportedValues()
@@ -3383,6 +3467,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             ApplyLiveSessionSettingValue(setting, values, detail);
         }
+
+        if (_liveSessionCastFocusLayerSetting is not null)
+        {
+            ApplyLiveSessionSettingValue(_liveSessionCastFocusLayerSetting, values, detail);
+        }
+
+        if (_liveSessionCastAudioTriggerSetting is not null)
+        {
+            ApplyLiveSessionSettingValue(_liveSessionCastAudioTriggerSetting, values, detail);
+        }
+
+        RefreshLiveSessionRequestTracking();
     }
 
     private void ResetLiveSessionSettings(
@@ -3407,6 +3503,47 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         target.Clear();
     }
 
+    private void ResetLiveSessionCastFocusLayerSetting()
+    {
+        _liveSessionCastFocusLayerSetting?.Dispose();
+        _liveSessionCastFocusLayerSetting = null;
+
+        var row = _runtimeConfig.GetRowsByKeys([LiveSessionCastFocusLayerKey]).FirstOrDefault();
+        if (row is not null)
+        {
+            _liveSessionCastFocusLayerSetting = new LiveSessionSettingViewModel(row);
+        }
+
+        RefreshLiveSessionCastFocusLayerUi();
+    }
+
+    private void ResetLiveSessionCastAudioTriggerSetting()
+    {
+        _liveSessionCastAudioTriggerSetting?.Dispose();
+        _liveSessionCastAudioTriggerSetting = null;
+
+        var row = _runtimeConfig.GetRowsByKeys([LiveSessionCastAudioTriggerKey]).FirstOrDefault();
+        if (row is not null)
+        {
+            _liveSessionCastAudioTriggerSetting = new LiveSessionSettingViewModel(row);
+        }
+
+        RefreshLiveSessionCastAudioTriggerUi();
+    }
+
+    private IEnumerable<LiveSessionSettingViewModel> EnumerateLiveSessionSettings()
+    {
+        foreach (var setting in LiveSessionPrimarySettings)
+        {
+            yield return setting;
+        }
+
+        foreach (var setting in LiveSessionSecondarySettings)
+        {
+            yield return setting;
+        }
+    }
+
     private void ApplyLiveSessionSettingValue(
         LiveSessionSettingViewModel setting,
         IReadOnlyDictionary<string, (string Value, string Source)> values,
@@ -3419,6 +3556,108 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         setting.ClearLiveValue(missingDetail);
+    }
+
+    private void RefreshLiveSessionRequestTracking()
+    {
+        var requestedValues = BuildRequestedRuntimeValueLookup();
+
+        foreach (var setting in EnumerateLiveSessionSettings())
+        {
+            requestedValues.TryGetValue(setting.Key, out var requestedValue);
+            setting.ApplyRequestedValue(requestedValue);
+
+            if (_liveSessionFailedPublishValues.TryGetValue(setting.Key, out var failedValue))
+            {
+                setting.ApplyFailedValue(failedValue, _liveSessionFailedPublishDetail);
+            }
+            else
+            {
+                setting.ClearFailureState();
+            }
+        }
+
+        if (_liveSessionCastFocusLayerSetting is not null)
+        {
+            requestedValues.TryGetValue(_liveSessionCastFocusLayerSetting.Key, out var requestedValue);
+            _liveSessionCastFocusLayerSetting.ApplyRequestedValue(requestedValue);
+
+            if (_liveSessionFailedPublishValues.TryGetValue(_liveSessionCastFocusLayerSetting.Key, out var failedValue))
+            {
+                _liveSessionCastFocusLayerSetting.ApplyFailedValue(failedValue, _liveSessionFailedPublishDetail);
+            }
+            else
+            {
+                _liveSessionCastFocusLayerSetting.ClearFailureState();
+            }
+        }
+
+        if (_liveSessionCastAudioTriggerSetting is not null)
+        {
+            requestedValues.TryGetValue(_liveSessionCastAudioTriggerSetting.Key, out var requestedValue);
+            _liveSessionCastAudioTriggerSetting.ApplyRequestedValue(requestedValue);
+
+            if (_liveSessionFailedPublishValues.TryGetValue(_liveSessionCastAudioTriggerSetting.Key, out var failedValue))
+            {
+                _liveSessionCastAudioTriggerSetting.ApplyFailedValue(failedValue, _liveSessionFailedPublishDetail);
+            }
+            else
+            {
+                _liveSessionCastAudioTriggerSetting.ClearFailureState();
+            }
+        }
+
+        RefreshLiveSessionCastFocusLayerUi();
+        RefreshLiveSessionCastAudioTriggerUi();
+    }
+
+    private IReadOnlyDictionary<string, string> BuildRequestedRuntimeValueLookup()
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (_twinBridge is LslTwinModeBridge lslBridge)
+        {
+            foreach (var pair in lslBridge.RequestedSettings)
+            {
+                values[pair.Key] = pair.Value;
+            }
+        }
+        else
+        {
+            foreach (var delta in _latestTwinDeltas)
+            {
+                if (!string.IsNullOrWhiteSpace(delta.Requested))
+                {
+                    values[delta.Key] = delta.Requested;
+                }
+            }
+        }
+
+        foreach (var pair in _liveSessionRequestedValues)
+        {
+            values[pair.Key] = pair.Value;
+        }
+
+        return values;
+    }
+
+    private void ApplyLiveSessionPublishFailure(RuntimeConfigProfile profile, string detail)
+    {
+        _liveSessionFailedPublishValues = profile.Entries.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value,
+            StringComparer.OrdinalIgnoreCase);
+        _liveSessionFailedPublishDetail = string.IsNullOrWhiteSpace(detail)
+            ? "The last apply attempt failed for the currently requested values."
+            : detail.Trim();
+        RefreshLiveSessionRequestTracking();
+    }
+
+    private void ClearLiveSessionPublishFailure()
+    {
+        _liveSessionFailedPublishValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _liveSessionFailedPublishDetail = string.Empty;
+        RefreshLiveSessionRequestTracking();
     }
 
     private IReadOnlyDictionary<string, (string Value, string Source)> BuildLiveRuntimeValueLookup(
@@ -3479,6 +3718,171 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         detail = runtimeDetail;
         return values;
     }
+
+    private bool CanSelectLiveSessionCastFocusLayer(object? parameter)
+        => parameter is string &&
+           _liveSessionCastFocusLayerSetting is not null &&
+           SelectedApp is not null &&
+           _runtimeConfig.SelectedProfile is not null;
+
+    private bool CanToggleLiveSessionCastAudioTrigger()
+        => _liveSessionCastAudioTriggerSetting is not null &&
+           SelectedApp is not null &&
+           _runtimeConfig.SelectedProfile is not null;
+
+    private async Task SelectLiveSessionCastFocusLayerAsync(object? parameter)
+    {
+        if (parameter is not string rawValue)
+        {
+            return;
+        }
+
+        if (_liveSessionCastFocusLayerSetting is null)
+        {
+            await DispatchAsync(() =>
+                AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Cast focus layer unavailable.",
+                    "The selected runtime profile does not expose the projected_feed_focus_layer setting.")).ConfigureAwait(false);
+            return;
+        }
+
+        var normalizedValue = NormalizeLiveSessionCastFocusLayerValue(rawValue);
+        var currentValue = NormalizeLiveSessionCastFocusLayerValue(ReadLiveSessionCastFocusLayerValue());
+        if (string.Equals(normalizedValue, currentValue, StringComparison.OrdinalIgnoreCase) &&
+            _liveSessionCastFocusLayerSetting.SidebarState == LiveSessionSettingSidebarState.Verified)
+        {
+            return;
+        }
+
+        var applied = await DispatchAsync(() => _runtimeConfig.TrySetValue(LiveSessionCastFocusLayerKey, normalizedValue)).ConfigureAwait(false);
+        if (!applied)
+        {
+            await DispatchAsync(() =>
+                AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Cast focus layer stage failed.",
+                    $"Could not stage {LiveSessionCastFocusLayerKey}={normalizedValue}.")).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(RefreshLiveSessionCastFocusLayerUi).ConfigureAwait(false);
+        var profile = await DispatchAsync(() => BuildIncrementalLiveSessionRuntimeProfile(
+            LiveSessionCastFocusLayerKey,
+            normalizedValue,
+            "cast_focus_layer")).ConfigureAwait(false);
+        var outcome = await ApplyLiveSessionRuntimeConfigHotloadAsync(
+                profile,
+                "Cast focus layer apply",
+                "Cast focus layer apply failed.")
+            .ConfigureAwait(false);
+        await ApplyOutcomeAsync("Apply Cast Focus Layer", outcome).ConfigureAwait(false);
+    }
+
+    private async Task ToggleLiveSessionCastAudioTriggerAsync()
+    {
+        if (_liveSessionCastAudioTriggerSetting is null)
+        {
+            await DispatchAsync(() =>
+                AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Cast audio trigger unavailable.",
+                    "The selected runtime profile does not expose the projected_feed_focus_layer_audio_trigger_enabled setting.")).ConfigureAwait(false);
+            return;
+        }
+
+        var nextValue = ReadLiveSessionCastAudioTriggerEnabled() ? "false" : "true";
+        var applied = await DispatchAsync(() => _runtimeConfig.TrySetValue(LiveSessionCastAudioTriggerKey, nextValue)).ConfigureAwait(false);
+        if (!applied)
+        {
+            await DispatchAsync(() =>
+                AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Cast audio trigger stage failed.",
+                    $"Could not stage {LiveSessionCastAudioTriggerKey}={nextValue}.")).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(RefreshLiveSessionCastAudioTriggerUi).ConfigureAwait(false);
+        var profile = await DispatchAsync(() => BuildIncrementalLiveSessionRuntimeProfile(
+            LiveSessionCastAudioTriggerKey,
+            nextValue,
+            "cast_audio_trigger")).ConfigureAwait(false);
+        var outcome = await ApplyLiveSessionRuntimeConfigHotloadAsync(
+                profile,
+                "Cast audio trigger apply",
+                "Cast audio trigger apply failed.")
+            .ConfigureAwait(false);
+        await ApplyOutcomeAsync("Apply Cast Audio Trigger", outcome).ConfigureAwait(false);
+    }
+
+    private void RefreshLiveSessionCastFocusLayerUi()
+    {
+        var selectedValue = NormalizeLiveSessionCastFocusLayerValue(ReadLiveSessionCastFocusLayerValue());
+        var selectedState = _liveSessionCastFocusLayerSetting?.SidebarState ?? LiveSessionSettingSidebarState.Staged;
+        var selectedStateDetail = _liveSessionCastFocusLayerSetting?.SidebarStateDetail
+            ?? "Select a runtime config profile to enable cast focus layer control.";
+
+        foreach (var option in LiveSessionCastFocusLayerOptions)
+        {
+            var isSelected = string.Equals(option.Value, selectedValue, StringComparison.OrdinalIgnoreCase);
+            option.IsSelected = isSelected;
+            option.State = isSelected ? selectedState : LiveSessionSettingSidebarState.Staged;
+            option.StateDetail = isSelected ? selectedStateDetail : option.Description;
+        }
+
+        OnPropertyChanged(nameof(LiveSessionCastFocusLayerStatusLabel));
+        OnPropertyChanged(nameof(LiveSessionCastFocusLayerStatusDetail));
+        OnPropertyChanged(nameof(LiveSessionCastFocusLayerStatusState));
+        SelectLiveSessionCastFocusLayerCommand?.RaiseCanExecuteChanged();
+    }
+
+    private void RefreshLiveSessionCastAudioTriggerUi()
+    {
+        OnPropertyChanged(nameof(LiveSessionCastAudioTriggerStatusLabel));
+        OnPropertyChanged(nameof(LiveSessionCastAudioTriggerStatusDetail));
+        OnPropertyChanged(nameof(LiveSessionCastAudioTriggerStatusState));
+        OnPropertyChanged(nameof(LiveSessionCastAudioTriggerActionLabel));
+        ToggleLiveSessionCastAudioTriggerCommand?.RaiseCanExecuteChanged();
+    }
+
+    private string? ReadLiveSessionCastFocusLayerValue()
+        => _liveSessionCastFocusLayerSetting?.Row is ChoiceRowViewModel choice
+            ? choice.SelectedOption
+            : null;
+
+    private string? ReadLiveSessionCastAudioTriggerValue()
+        => _liveSessionCastAudioTriggerSetting?.Row is ToggleRowViewModel toggle
+            ? (toggle.Value ? "true" : "false")
+            : null;
+
+    private bool ReadLiveSessionCastAudioTriggerEnabled()
+        => bool.TryParse(ReadLiveSessionCastAudioTriggerValue(), out var enabled) && enabled;
+
+    private static string NormalizeLiveSessionCastFocusLayerValue(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "-1" : value.Trim();
+
+    private static string ResolveLiveSessionCastFocusLayerLabel(string? value)
+    {
+        var normalizedValue = NormalizeLiveSessionCastFocusLayerValue(value);
+        var definition = LiveSessionCastFocusLayerDefinitions.FirstOrDefault(candidate =>
+            string.Equals(candidate.Value, normalizedValue, StringComparison.OrdinalIgnoreCase));
+        return definition?.Label ?? normalizedValue;
+    }
+
+    private static string ResolveLiveSessionCastAudioTriggerLabel(string? value)
+        => bool.TryParse(value, out var enabled) && enabled
+            ? "On"
+            : "Off";
+
+    private static string FormatLiveSessionSidebarStateLabel(LiveSessionSettingSidebarState state)
+        => state switch
+        {
+            LiveSessionSettingSidebarState.Verified => "Verified",
+            LiveSessionSettingSidebarState.Pending => "Requested",
+            LiveSessionSettingSidebarState.Failed => "Failed",
+            _ => "Staged"
+        };
 
     private static IReadOnlyDictionary<string, string> ParseRuntimeConfigEntries(string runtimeConfigJson)
     {
@@ -3840,6 +4244,61 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         await ApplyOutcomeAsync("Track Runtime Preset", outcome).ConfigureAwait(false);
     }
 
+    private async Task ApplyLiveSessionRuntimeConfigAsync()
+    {
+        if (SelectedApp is null)
+        {
+            await DispatchAsync(() => AppendLog(
+                OperatorLogLevel.Warning,
+                "Live session apply blocked.",
+                "Select an app target first.")).ConfigureAwait(false);
+            return;
+        }
+
+        var selectedProfile = await DispatchAsync(() => _runtimeConfig.SelectedProfile).ConfigureAwait(false);
+        if (selectedProfile is null)
+        {
+            await DispatchAsync(() => AppendLog(
+                OperatorLogLevel.Warning,
+                "Live session apply blocked.",
+                "Select a runtime config profile for the current target app first.")).ConfigureAwait(false);
+            return;
+        }
+
+        if (!selectedProfile.MatchesPackage(SelectedApp.PackageId))
+        {
+            await DispatchAsync(() => AppendLog(
+                OperatorLogLevel.Warning,
+                "Live session apply blocked.",
+                $"The selected runtime config profile targets {FormatPackageTargets(selectedProfile.PackageIds)}, but the current selected app is {SelectedApp.PackageId}. Select the runtime app whose profile you want to apply.")).ConfigureAwait(false);
+            return;
+        }
+
+        RuntimeConfigProfile? profile = null;
+        try
+        {
+            profile = await DispatchAsync(() => _runtimeConfig.BuildEditedProfile()).ConfigureAwait(false);
+            var outcome = await ApplyLiveSessionRuntimeConfigHotloadAsync(
+                    profile,
+                    "Live session apply",
+                    "Live session apply failed.")
+                .ConfigureAwait(false);
+            await ApplyOutcomeAsync("Apply Live Changes", outcome).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await DispatchAsync(() =>
+            {
+                if (profile is not null)
+                {
+                    ApplyLiveSessionPublishFailure(profile, ex.Message);
+                }
+
+                AppendLog(OperatorLogLevel.Failure, "Live session apply failed.", ex.Message);
+            }).ConfigureAwait(false);
+        }
+    }
+
     private async Task PublishRuntimeConfigAsync()
     {
         if (SelectedApp is null)
@@ -3864,15 +4323,180 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
+        RuntimeConfigProfile? profile = null;
         try
         {
-            var profile = await DispatchAsync(() => _runtimeConfig.BuildEditedProfile()).ConfigureAwait(false);
+            profile = await DispatchAsync(() => _runtimeConfig.BuildEditedProfile()).ConfigureAwait(false);
             var outcome = await _twinBridge.PublishRuntimeConfigAsync(profile, SelectedApp).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                if (outcome.Kind == OperationOutcomeKind.Success)
+                {
+                    ClearLiveSessionPublishFailure();
+                }
+                else
+                {
+                    ApplyLiveSessionPublishFailure(profile, outcome.Detail);
+                }
+            }).ConfigureAwait(false);
             await ApplyOutcomeAsync("Publish Runtime Config", outcome).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            await DispatchAsync(() => AppendLog(OperatorLogLevel.Failure, "Runtime config publish failed.", ex.Message)).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                if (profile is not null)
+                {
+                    ApplyLiveSessionPublishFailure(profile, ex.Message);
+                }
+
+                AppendLog(OperatorLogLevel.Failure, "Runtime config publish failed.", ex.Message);
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private RuntimeConfigProfile BuildIncrementalLiveSessionRuntimeProfile(
+        string key,
+        string value,
+        string idSuffix)
+    {
+        var selectedProfile = _runtimeConfig.SelectedProfile ?? throw new InvalidOperationException("Select a runtime config profile first.");
+
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in selectedProfile.Entries)
+        {
+            values[entry.Key] = entry.Value;
+        }
+
+        if (_liveSessionRequestedValues.Count > 0)
+        {
+            foreach (var pair in _liveSessionRequestedValues)
+            {
+                values[pair.Key] = pair.Value;
+            }
+        }
+        else if (_liveSessionDeviceRuntimeValues.Count > 0)
+        {
+            foreach (var pair in _liveSessionDeviceRuntimeValues)
+            {
+                values[pair.Key] = pair.Value;
+            }
+        }
+
+        values[key] = value;
+
+        var orderedEntries = new List<RuntimeConfigEntry>();
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in selectedProfile.Entries)
+        {
+            if (values.TryGetValue(entry.Key, out var currentValue) && seenKeys.Add(entry.Key))
+            {
+                orderedEntries.Add(new RuntimeConfigEntry(entry.Key, currentValue));
+            }
+        }
+
+        foreach (var pair in values.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (seenKeys.Add(pair.Key))
+            {
+                orderedEntries.Add(new RuntimeConfigEntry(pair.Key, pair.Value));
+            }
+        }
+
+        return new RuntimeConfigProfile(
+            $"{selectedProfile.Id}_{idSuffix}",
+            selectedProfile.Label,
+            selectedProfile.File,
+            selectedProfile.Version,
+            selectedProfile.Channel,
+            selectedProfile.StudyLock,
+            selectedProfile.Description,
+            selectedProfile.PackageIds,
+            orderedEntries);
+    }
+
+    private async Task<OperationOutcome> ApplyLiveSessionRuntimeConfigHotloadAsync(
+        RuntimeConfigProfile profile,
+        string summaryPrefix,
+        string failureSummary)
+    {
+        if (SelectedApp is null)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"{summaryPrefix} blocked.",
+                "Select an app target first.");
+        }
+
+        var csvPath = await _runtimeConfigWriter.WriteAsync(profile).ConfigureAwait(false);
+        var hotloadProfile = new HotloadProfile(
+            profile.Id,
+            profile.Label,
+            csvPath,
+            profile.Version,
+            profile.Channel,
+            profile.StudyLock,
+            profile.Description,
+            profile.PackageIds);
+
+        try
+        {
+            var outcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, SelectedApp).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                if (outcome.Kind == OperationOutcomeKind.Success)
+                {
+                    RecordLiveSessionRequestedValues(profile.Entries);
+                    ClearLiveSessionPublishFailure();
+                }
+                else
+                {
+                    ApplyLiveSessionPublishFailure(profile, outcome.Detail);
+                }
+            }).ConfigureAwait(false);
+
+            if (outcome.Kind == OperationOutcomeKind.Success)
+            {
+                await RefreshLiveSessionDeviceRuntimeOverridesAsync().ConfigureAwait(false);
+                await DispatchAsync(RefreshLiveSessionReportedValues).ConfigureAwait(false);
+            }
+
+            var detail = string.IsNullOrWhiteSpace(outcome.Detail)
+                ? $"Wrote {csvPath}."
+                : $"{outcome.Detail} Wrote {csvPath}.";
+            return new OperationOutcome(
+                outcome.Kind,
+                outcome.Summary,
+                detail,
+                outcome.Endpoint,
+                outcome.PackageId,
+                [csvPath]);
+        }
+        catch (Exception ex)
+        {
+            await DispatchAsync(() => ApplyLiveSessionPublishFailure(profile, ex.Message)).ConfigureAwait(false);
+            return new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                failureSummary,
+                ex.Message,
+                PackageId: SelectedApp.PackageId);
+        }
+    }
+
+    private void RecordLiveSessionRequestedValues(IEnumerable<RuntimeConfigEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            _liveSessionRequestedValues[entry.Key] = entry.Value;
+        }
+    }
+
+    private void ReplaceLiveSessionRequestedValues(IReadOnlyDictionary<string, string> values)
+    {
+        _liveSessionRequestedValues.Clear();
+        foreach (var pair in values)
+        {
+            _liveSessionRequestedValues[pair.Key] = pair.Value;
         }
     }
 
@@ -5248,6 +5872,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     public sealed record ActionChoice<T>(string Label, string Description, T Value);
+
+    private sealed record LiveSessionCastFocusLayerDefinition(string Value, string Label, string Description);
 
     public sealed record KeyValueStatusRow(string Key, string Value, string Source);
 

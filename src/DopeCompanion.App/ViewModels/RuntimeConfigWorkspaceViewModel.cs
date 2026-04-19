@@ -59,6 +59,8 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
                 Text("projected_feed_quad_width_meters", "Quad Width Meters", "Projected-feed quad width.", "0.72"),
                 Text("projected_feed_quad_height_meters", "Quad Height Meters", "Projected-feed quad height.", "0.54"),
                 Choice("projected_feed_display_surface_mode", "Display Surface Mode", "Projected-feed display-surface mode enum.", "1", ["0", "1"]),
+                Choice("projected_feed_focus_layer", "Focus Layer", "Focused cast layer. -1 auto cycle, 0 final composite, 1 raw feed, 2 pre-blurred brightness, 3 raw strength, 4 blurred strength, 5 depth visualization.", "-1", ["-1", "0", "1", "2", "3", "4", "5"]),
+                Toggle("projected_feed_focus_layer_audio_trigger_enabled", "Focus Layer Audio Trigger", "Allow audio spikes to cycle the cast focus layer while Focus Layer stays on Auto.", true),
                 Text("projected_feed_full_view_overlay_overscan", "Overlay Overscan", "Full-view overlay overscan for the quad surface.", "1.06"),
                 Text("projected_feed_projection_edge_fade", "Projection Edge Fade", "Edge fade applied to the projected-feed overlay.", "0.06"),
                 Toggle("projected_feed_show_mode_indicators", "Show Mode Indicators", "Display the projected-feed mode indicators row.", true),

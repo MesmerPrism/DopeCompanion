@@ -234,7 +234,7 @@
                                         Command="{Binding RefreshHeadsetStatusCommand}"
                                         Style="{StaticResource PrimaryActionButtonStyle}" />
                                 <Button Content="Apply Live Changes"
-                                        Command="{Binding PublishRuntimeConfigCommand}" />
+                                        Command="{Binding ApplyLiveSessionRuntimeConfigCommand}" />
                                 <Button Content="Restore Profile"
                                         Command="{Binding ResetRuntimeConfigCommand}" />
                                 <Button Content="Launch Target"

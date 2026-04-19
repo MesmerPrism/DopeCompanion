@@ -32,12 +32,14 @@ internal partial class DisplayCastOverlayWindow : Window
     private nint _windowHandle;
     private nint _ownedCastHandle;
 
-    internal DisplayCastOverlayWindow(QuestDisplayCastService castService, ICommand stopCastCommand)
+    internal DisplayCastOverlayWindow(QuestDisplayCastService castService, ICommand stopCastCommand, object? dataContext = null)
     {
         _castService = castService ?? throw new ArgumentNullException(nameof(castService));
         _stopCastCommand = stopCastCommand ?? throw new ArgumentNullException(nameof(stopCastCommand));
 
         InitializeComponent();
+        WindowThemeHelper.Attach(this);
+        DataContext = dataContext;
 
         _baseMinWidth = MinWidth;
         _baseMinHeight = MinHeight;

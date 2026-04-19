@@ -8,11 +8,19 @@ public sealed class LiveSessionSettingViewModel : ObservableObject, IDisposable
     private string _liveValue = "No live readback";
     private string _liveDetail = "Waiting for quest_twin_state runtime values.";
     private OperationOutcomeKind _liveLevel = OperationOutcomeKind.Preview;
+    private string? _reportedValue;
+    private string _reportedSourceLabel = "Live runtime state";
+    private string? _requestedValue;
+    private string? _failedValue;
+    private string _failedDetail = string.Empty;
+    private LiveSessionSettingSidebarState _sidebarState = LiveSessionSettingSidebarState.Staged;
+    private string _sidebarStateDetail = "Current editor value is staged locally and has not been applied yet.";
 
     public LiveSessionSettingViewModel(ConfigSettingRowViewModel row)
     {
         Row = row ?? throw new ArgumentNullException(nameof(row));
         Row.PropertyChanged += OnRowPropertyChanged;
+        UpdateSidebarState();
     }
 
     public ConfigSettingRowViewModel Row { get; }
@@ -41,22 +49,57 @@ public sealed class LiveSessionSettingViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _liveLevel, value);
     }
 
+    public LiveSessionSettingSidebarState SidebarState
+    {
+        get => _sidebarState;
+        private set => SetProperty(ref _sidebarState, value);
+    }
+
+    public string SidebarStateDetail
+    {
+        get => _sidebarStateDetail;
+        private set => SetProperty(ref _sidebarStateDetail, value);
+    }
+
     public void ApplyLiveValue(string liveValue, string sourceLabel)
     {
-        LiveValue = string.IsNullOrWhiteSpace(liveValue) ? "No live readback" : liveValue.Trim();
-        var stagedValue = ReadRowValue(Row);
-        var matches = ValuesEquivalent(stagedValue, LiveValue);
-        LiveLevel = matches ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
-        LiveDetail = matches
-            ? $"{sourceLabel}. Live and staged values match."
-            : $"{sourceLabel}. Live value differs from the staged override.";
+        _reportedValue = NormalizeValue(liveValue);
+        _reportedSourceLabel = string.IsNullOrWhiteSpace(sourceLabel) ? "Live runtime state" : sourceLabel.Trim();
+        LiveValue = string.IsNullOrWhiteSpace(_reportedValue) ? "No live readback" : _reportedValue;
+        UpdateLiveComparison();
+        UpdateSidebarState();
     }
 
     public void ClearLiveValue(string detail)
     {
+        _reportedValue = null;
+        _reportedSourceLabel = "Live runtime state";
         LiveValue = "No live readback";
         LiveLevel = OperationOutcomeKind.Preview;
         LiveDetail = detail;
+        UpdateSidebarState();
+    }
+
+    public void ApplyRequestedValue(string? requestedValue)
+    {
+        _requestedValue = NormalizeValue(requestedValue);
+        UpdateSidebarState();
+    }
+
+    public void ApplyFailedValue(string attemptedValue, string detail)
+    {
+        _failedValue = NormalizeValue(attemptedValue);
+        _failedDetail = string.IsNullOrWhiteSpace(detail)
+            ? "The last apply attempt failed for this value."
+            : detail.Trim();
+        UpdateSidebarState();
+    }
+
+    public void ClearFailureState()
+    {
+        _failedValue = null;
+        _failedDetail = string.Empty;
+        UpdateSidebarState();
     }
 
     public void Dispose()
@@ -66,23 +109,13 @@ public sealed class LiveSessionSettingViewModel : ObservableObject, IDisposable
 
     private void OnRowPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (LiveLevel is not OperationOutcomeKind.Success and not OperationOutcomeKind.Warning)
-        {
-            return;
-        }
-
         if (e.PropertyName is nameof(SingleValueRowViewModel.ValueText)
             or nameof(ToggleRowViewModel.Value)
             or nameof(ChoiceRowViewModel.SelectedOption))
         {
-            ApplyLiveValue(LiveValue, ExtractSourceLabel(LiveDetail));
+            UpdateLiveComparison();
+            UpdateSidebarState();
         }
-    }
-
-    private static string ExtractSourceLabel(string detail)
-    {
-        var index = detail.IndexOf('.');
-        return index > 0 ? detail[..index] : "Live runtime state";
     }
 
     private static string ReadRowValue(ConfigSettingRowViewModel row)
@@ -94,6 +127,63 @@ public sealed class LiveSessionSettingViewModel : ObservableObject, IDisposable
             MultilineRowViewModel multiline => multiline.ValueText.Trim(),
             _ => string.Empty
         };
+
+    private void UpdateLiveComparison()
+    {
+        if (string.IsNullOrWhiteSpace(_reportedValue))
+        {
+            if (LiveLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning)
+            {
+                LiveValue = "No live readback";
+                LiveLevel = OperationOutcomeKind.Preview;
+                LiveDetail = "Waiting for quest_twin_state runtime values.";
+            }
+
+            return;
+        }
+
+        var stagedValue = ReadRowValue(Row);
+        var matches = ValuesEquivalent(stagedValue, _reportedValue);
+        LiveValue = _reportedValue;
+        LiveLevel = matches ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
+        LiveDetail = matches
+            ? $"{_reportedSourceLabel}. Live and staged values match."
+            : $"{_reportedSourceLabel}. Live value differs from the staged override.";
+    }
+
+    private void UpdateSidebarState()
+    {
+        var currentValue = NormalizeValue(ReadRowValue(Row)) ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(_reportedValue) && ValuesEquivalent(currentValue, _reportedValue))
+        {
+            SidebarState = LiveSessionSettingSidebarState.Verified;
+            SidebarStateDetail = $"{_reportedSourceLabel}. Current value verified by the headset.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_failedValue) && ValuesEquivalent(currentValue, _failedValue))
+        {
+            SidebarState = LiveSessionSettingSidebarState.Failed;
+            SidebarStateDetail = _failedDetail;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_requestedValue) && ValuesEquivalent(currentValue, _requestedValue))
+        {
+            SidebarState = LiveSessionSettingSidebarState.Pending;
+            SidebarStateDetail = "This value was requested and is waiting for live verification from the headset.";
+            return;
+        }
+
+        SidebarState = LiveSessionSettingSidebarState.Staged;
+        SidebarStateDetail = string.IsNullOrWhiteSpace(_reportedValue)
+            ? "Current editor value is staged locally and has not been applied yet."
+            : "Current editor value differs from the live headset state and has not been requested yet.";
+    }
+
+    private static string? NormalizeValue(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static bool ValuesEquivalent(string left, string right)
     {
@@ -111,4 +201,12 @@ public sealed class LiveSessionSettingViewModel : ObservableObject, IDisposable
             && double.TryParse(right, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var rightNumber)
             && Math.Abs(leftNumber - rightNumber) < 0.0001d;
     }
+}
+
+public enum LiveSessionSettingSidebarState
+{
+    Staged,
+    Pending,
+    Verified,
+    Failed
 }
