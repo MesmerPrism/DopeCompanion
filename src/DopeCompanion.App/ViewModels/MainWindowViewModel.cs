@@ -201,6 +201,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _liveSessionRuntimeReadbackDetail = "Connect the live DOPE runtime and let it publish quest_twin_state before expecting current projected-feed values here.";
     private IReadOnlyDictionary<string, string> _liveSessionDeviceRuntimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private LiveSessionWindow? _liveSessionWindow;
+    private FullDiagnosticHarnessWindow? _fullDiagnosticHarnessWindow;
+    private FullDiagnosticHarnessWindowViewModel? _fullDiagnosticHarnessWindowViewModel;
     private DisplayCastOverlayWindow? _liveSessionCastOverlayWindow;
 
     public MainWindowViewModel()
@@ -1644,6 +1646,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _testLslSignalService.Dispose();
         _runtimeConfig.PropertyChanged -= OnRuntimeConfigPropertyChanged;
         _questDisplayCastService.StateChanged -= OnQuestDisplayCastStateChanged;
+        CloseFullDiagnosticHarnessWindow();
         CloseLiveSessionWindow();
         CloseLiveSessionCastOverlayWindow();
         DisposeLiveSessionSettings(LiveSessionPrimarySettings);
@@ -1701,7 +1704,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 CatalogSourcePath = catalog.Source.RootPath;
 
                 _hotloadProfiles = catalog.HotloadProfiles;
-                SelectedApp = Apps.FirstOrDefault(app => string.Equals(app.PackageId, previousPackageId, StringComparison.OrdinalIgnoreCase));
+                SelectedApp = Apps.FirstOrDefault(app => string.Equals(app.PackageId, previousPackageId, StringComparison.OrdinalIgnoreCase))
+                    ?? Apps.FirstOrDefault(app => string.Equals(app.PackageId, "com.tillh.dynamicoscillatorypatternentrainment", StringComparison.OrdinalIgnoreCase))
+                    ?? Apps.FirstOrDefault();
                 SelectedBundle = Bundles.FirstOrDefault(bundle => string.Equals(bundle.Id, previousBundleId, StringComparison.OrdinalIgnoreCase));
                 SelectedDeviceProfile = DeviceProfiles.FirstOrDefault(profile => string.Equals(profile.Id, previousDeviceProfileId, StringComparison.OrdinalIgnoreCase))
                     ?? DeviceProfiles.FirstOrDefault();
@@ -2393,6 +2398,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }).ConfigureAwait(false);
 
         _latestHeadsetStatus = status;
+        if (status.IsConnected)
+        {
+            SaveSession(
+                endpoint: string.IsNullOrWhiteSpace(status.ConnectionLabel) ? null : status.ConnectionLabel,
+                usbSerial: status.IsUsbAdbVisible && !string.IsNullOrWhiteSpace(status.VisibleUsbSerial)
+                    ? status.VisibleUsbSerial
+                    : null);
+        }
+
         await RefreshLiveSessionProximityStatusAsync().ConfigureAwait(false);
         await RefreshLiveSessionDeviceRuntimeOverridesAsync().ConfigureAwait(false);
         await DispatchAsync(RefreshLiveSessionReportedValues).ConfigureAwait(false);
@@ -2541,6 +2555,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var (study, includeLslTwinChecks) = ResolveDiagnosticsStudyContext();
         if (study is null)
         {
+            await DispatchAsync(() =>
+            {
+                DiagnosticsReportLevel = OperationOutcomeKind.Warning;
+                DiagnosticsReportSummary = "Diagnostics report generation is blocked.";
+                DiagnosticsReportDetail = "The companion could not resolve a public DOPE study target. Refresh the catalog or select the projected-feed DOPE app target before generating the report.";
+                DiagnosticsReportTimestampLabel = $"Blocked {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+            }).ConfigureAwait(false);
+
             await ApplyOutcomeAsync(
                 "Generate Diagnostics Report",
                 new OperationOutcome(
@@ -2632,30 +2654,73 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private async Task RunFullDiagnosticHarnessAsync()
     {
-        var (study, includeLslTwinChecks) = ResolveDiagnosticsStudyContext();
-        if (study is null)
-        {
-            await ApplyOutcomeAsync(
-                "Run Full Diagnostic Harness",
-                new OperationOutcome(
-                    OperationOutcomeKind.Warning,
-                    "Full diagnostic harness generation is blocked.",
-                    "The public diagnostics catalog did not expose the projected-feed Colorama scene definition needed to run the harness.")).ConfigureAwait(false);
-            return;
-        }
-
-        var sceneProfile = ResolveFullDiagnosticHarnessSceneProfile(study.App.PackageId);
+        var harnessWindowViewModel = await DispatchAsync(() => EnsureFullDiagnosticHarnessWindow(BuildFullDiagnosticHarnessPreparationPlan())).ConfigureAwait(false);
         await DispatchAsync(() =>
         {
             FullDiagnosticHarnessLevel = OperationOutcomeKind.Preview;
-            FullDiagnosticHarnessSummary = "Running the full DOPE diagnostic harness...";
-            FullDiagnosticHarnessDetail = "Refreshing managed tooling if needed, connecting Quest, reinstalling the pinned APK, staging the baseline scene profile, launching the runtime, and generating the shareable bundle.";
+            FullDiagnosticHarnessSummary = "Preparing the full DOPE diagnostic harness...";
+            FullDiagnosticHarnessDetail = "Resolving the public DOPE study target and staging the live harness plan before the managed tooling, Quest connection, install, launch, and report steps begin.";
             FullDiagnosticHarnessTimestampLabel = $"Started {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+            FullDiagnosticHarnessBundlePath = string.Empty;
+            FullDiagnosticHarnessFolderPath = string.Empty;
         }).ConfigureAwait(false);
 
-        DopeFullDiagnosticHarnessResult result;
         try
         {
+            var (study, includeLslTwinChecks) = ResolveDiagnosticsStudyContext();
+            if (study is null)
+            {
+                await DispatchAsync(() =>
+                {
+                    const string blockedSummary = "Full diagnostic harness generation is blocked.";
+                    const string blockedDetail = "The companion could not resolve a public DOPE study target. Refresh the catalog or select the projected-feed DOPE app target before running the harness.";
+                    FullDiagnosticHarnessLevel = OperationOutcomeKind.Warning;
+                    FullDiagnosticHarnessSummary = blockedSummary;
+                    FullDiagnosticHarnessDetail = blockedDetail;
+                    FullDiagnosticHarnessTimestampLabel = $"Blocked {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+                    harnessWindowViewModel.ApplyBlocked(blockedSummary, blockedDetail);
+                }).ConfigureAwait(false);
+
+                await ApplyOutcomeAsync(
+                    "Run Full Diagnostic Harness",
+                    new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Full diagnostic harness generation is blocked.",
+                        "The public diagnostics catalog did not expose the projected-feed Colorama scene definition needed to run the harness.")).ConfigureAwait(false);
+                return;
+            }
+
+            var sceneProfile = ResolveFullDiagnosticHarnessSceneProfile(study.App.PackageId);
+            var harnessRequestTemplate = new DopeFullDiagnosticHarnessRequest(
+                study,
+                SceneProfile: sceneProfile,
+                DeviceSelector: ResolveHeadsetActionSelector(),
+                OperatorBuildSummary: AppBuildIdentity.Current.Summary,
+                PdfScriptPath: TryResolveDiagnosticsPdfScriptPath(),
+                ProbeWaitDuration: TimeSpan.FromSeconds(12),
+                IncludeLslTwinChecks: includeLslTwinChecks);
+            var harnessPlan = DopeFullDiagnosticHarnessService.BuildExecutionPlan(harnessRequestTemplate);
+            await DispatchAsync(() => harnessWindowViewModel.PrepareForRun(harnessPlan)).ConfigureAwait(false);
+
+            var progress = new Progress<DopeFullDiagnosticHarnessProgress>(update =>
+            {
+                _ = DispatchAsync(() =>
+                {
+                    harnessWindowViewModel.ApplyProgress(update);
+                    ApplyFullDiagnosticHarnessProgress(update);
+                });
+            });
+
+            await DispatchAsync(() =>
+            {
+                FullDiagnosticHarnessLevel = OperationOutcomeKind.Preview;
+                FullDiagnosticHarnessSummary = "Running the full DOPE diagnostic harness...";
+                FullDiagnosticHarnessDetail = "Refreshing managed tooling if needed, connecting Quest, reinstalling the pinned APK, staging the baseline scene profile, launching the runtime, and generating the shareable bundle.";
+                FullDiagnosticHarnessTimestampLabel = $"Started {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+                FullDiagnosticHarnessBundlePath = string.Empty;
+                FullDiagnosticHarnessFolderPath = string.Empty;
+            }).ConfigureAwait(false);
+
             var harnessService = new DopeFullDiagnosticHarnessService(
                 _questService,
                 _hzdbService,
@@ -2663,18 +2728,67 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 _lslStreamDiscoveryService,
                 _testLslSignalService,
                 _twinBridge);
-            result = await harnessService
+            var result = await harnessService
                 .GenerateAsync(
-                    new DopeFullDiagnosticHarnessRequest(
-                        study,
-                        SceneProfile: sceneProfile,
-                        DeviceSelector: ResolveHeadsetActionSelector(),
-                        OperatorBuildSummary: AppBuildIdentity.Current.Summary,
-                        PdfScriptPath: TryResolveDiagnosticsPdfScriptPath(),
-                        ProbeWaitDuration: TimeSpan.FromSeconds(12),
-                        IncludeLslTwinChecks: includeLslTwinChecks),
+                    harnessRequestTemplate with
+                    {
+                        Progress = progress
+                    },
                     CancellationToken.None)
                 .ConfigureAwait(false);
+
+            await DispatchAsync(() =>
+            {
+                harnessWindowViewModel.ApplyResult(result);
+                FullDiagnosticHarnessLevel = result.Level;
+                FullDiagnosticHarnessSummary = result.Summary;
+                FullDiagnosticHarnessDetail = $"{result.Detail} Bundle: {NormalizeHostVisibleOperatorPath(result.BundlePath)}";
+                FullDiagnosticHarnessTimestampLabel = $"Generated {result.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+                FullDiagnosticHarnessBundlePath = result.BundlePath;
+                FullDiagnosticHarnessFolderPath = result.ReportDirectory;
+
+                if (result.DiagnosticsReportResult is not null)
+                {
+                    ApplyWindowsEnvironmentAnalysisResult(result.DiagnosticsReportResult.Report.WindowsEnvironment);
+                    ApplyWifiRouterDiagnosticsResult(result.DiagnosticsReportResult.Report.QuestWifiTransport);
+                    DiagnosticsReportLevel = result.DiagnosticsPdfLevel == OperationOutcomeKind.Warning &&
+                                             result.DiagnosticsReportResult.Level == OperationOutcomeKind.Success
+                        ? OperationOutcomeKind.Warning
+                        : result.DiagnosticsReportResult.Level;
+                    DiagnosticsReportSummary = result.DiagnosticsReportResult.Summary;
+                    DiagnosticsReportDetail = $"{result.DiagnosticsReportResult.Detail} PDF: {result.DiagnosticsPdfSummary} {result.DiagnosticsPdfDetail}".Trim();
+                    DiagnosticsReportTimestampLabel = $"Generated {result.DiagnosticsReportResult.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+                    DiagnosticsReportFolderPath = result.ReportDirectory;
+                    DiagnosticsReportPdfPath = result.DiagnosticsPdfPath;
+                }
+            }).ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(result.DeviceSelector))
+            {
+                await DispatchAsync(() =>
+                {
+                    EndpointDraft = result.DeviceSelector;
+                    ConnectionSummary = $"Harness last used Quest selector: {result.DeviceSelector}.";
+                }).ConfigureAwait(false);
+
+                if (result.DeviceSelector.Contains(':', StringComparison.Ordinal))
+                {
+                    SaveSession(endpoint: result.DeviceSelector);
+                }
+                else
+                {
+                    SaveSession(usbSerial: result.DeviceSelector);
+                }
+            }
+
+            await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+            await ApplyOutcomeAsync(
+                "Run Full Diagnostic Harness",
+                new OperationOutcome(
+                    result.Level,
+                    result.Summary,
+                    result.Detail,
+                    Items: [result.BundlePath, result.SummaryTextPath, result.SummaryJsonPath, result.DiagnosticsPdfPath, result.DiagnosticsJsonPath, result.DiagnosticsTexPath])).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -2684,6 +2798,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 FullDiagnosticHarnessSummary = "Full DOPE diagnostic harness failed.";
                 FullDiagnosticHarnessDetail = exception.Message;
                 FullDiagnosticHarnessTimestampLabel = $"Failed {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+                harnessWindowViewModel.ApplyFailure(exception);
             }).ConfigureAwait(false);
 
             await ApplyOutcomeAsync(
@@ -2692,60 +2807,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     OperationOutcomeKind.Failure,
                     "Full DOPE diagnostic harness failed.",
                     exception.Message)).ConfigureAwait(false);
-            return;
         }
-
-        await DispatchAsync(() =>
-        {
-            FullDiagnosticHarnessLevel = result.Level;
-            FullDiagnosticHarnessSummary = result.Summary;
-            FullDiagnosticHarnessDetail = $"{result.Detail} Bundle: {NormalizeHostVisibleOperatorPath(result.BundlePath)}";
-            FullDiagnosticHarnessTimestampLabel = $"Generated {result.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
-            FullDiagnosticHarnessBundlePath = result.BundlePath;
-            FullDiagnosticHarnessFolderPath = result.ReportDirectory;
-
-            if (result.DiagnosticsReportResult is not null)
-            {
-                ApplyWindowsEnvironmentAnalysisResult(result.DiagnosticsReportResult.Report.WindowsEnvironment);
-                ApplyWifiRouterDiagnosticsResult(result.DiagnosticsReportResult.Report.QuestWifiTransport);
-                DiagnosticsReportLevel = result.DiagnosticsPdfLevel == OperationOutcomeKind.Warning &&
-                                         result.DiagnosticsReportResult.Level == OperationOutcomeKind.Success
-                    ? OperationOutcomeKind.Warning
-                    : result.DiagnosticsReportResult.Level;
-                DiagnosticsReportSummary = result.DiagnosticsReportResult.Summary;
-                DiagnosticsReportDetail = $"{result.DiagnosticsReportResult.Detail} PDF: {result.DiagnosticsPdfSummary} {result.DiagnosticsPdfDetail}".Trim();
-                DiagnosticsReportTimestampLabel = $"Generated {result.DiagnosticsReportResult.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
-                DiagnosticsReportFolderPath = result.ReportDirectory;
-                DiagnosticsReportPdfPath = result.DiagnosticsPdfPath;
-            }
-        }).ConfigureAwait(false);
-
-        if (!string.IsNullOrWhiteSpace(result.DeviceSelector))
-        {
-            await DispatchAsync(() =>
-            {
-                EndpointDraft = result.DeviceSelector;
-                ConnectionSummary = $"Harness last used Quest selector: {result.DeviceSelector}.";
-            }).ConfigureAwait(false);
-
-            if (result.DeviceSelector.Contains(':', StringComparison.Ordinal))
-            {
-                SaveSession(endpoint: result.DeviceSelector);
-            }
-            else
-            {
-                SaveSession(usbSerial: result.DeviceSelector);
-            }
-        }
-
-        await RefreshHeadsetStatusAsync().ConfigureAwait(false);
-        await ApplyOutcomeAsync(
-            "Run Full Diagnostic Harness",
-            new OperationOutcome(
-                result.Level,
-                result.Summary,
-                result.Detail,
-                Items: [result.BundlePath, result.SummaryTextPath, result.SummaryJsonPath, result.DiagnosticsPdfPath, result.DiagnosticsJsonPath, result.DiagnosticsTexPath])).ConfigureAwait(false);
     }
 
     private WindowsEnvironmentAnalysisRequest BuildWindowsEnvironmentAnalysisRequest()
@@ -2918,6 +2980,91 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     ex.Message,
                     Items: [snapshot.RootPath])).ConfigureAwait(false);
         }
+    }
+
+    private void ApplyFullDiagnosticHarnessProgress(DopeFullDiagnosticHarnessProgress progress)
+    {
+        if (progress.State != DopeFullDiagnosticHarnessProgressState.Running)
+        {
+            return;
+        }
+
+        var progressDetail = string.Join(
+            " ",
+            new[]
+            {
+                progress.Summary,
+                progress.Detail
+            }.Where(text => !string.IsNullOrWhiteSpace(text)));
+
+        FullDiagnosticHarnessLevel = OperationOutcomeKind.Preview;
+        FullDiagnosticHarnessSummary = "Running the full DOPE diagnostic harness...";
+        FullDiagnosticHarnessDetail = $"Step {progress.StepIndex + 1} of {progress.TotalSteps}: {progress.Label}. {progressDetail}".Trim();
+        FullDiagnosticHarnessTimestampLabel = $"Started {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+    }
+
+    private static IReadOnlyList<DopeFullDiagnosticHarnessPlannedStep> BuildFullDiagnosticHarnessPreparationPlan()
+        =>
+        [
+            new(
+                "prepare-harness",
+                "Prepare Harness",
+                "Resolve the public DOPE study target, stage the live execution plan, and surface any early harness setup failures in this window.")
+        ];
+
+    private FullDiagnosticHarnessWindowViewModel EnsureFullDiagnosticHarnessWindow(IReadOnlyList<DopeFullDiagnosticHarnessPlannedStep> plan)
+    {
+        _fullDiagnosticHarnessWindowViewModel ??= new FullDiagnosticHarnessWindowViewModel();
+        _fullDiagnosticHarnessWindowViewModel.PrepareForRun(plan);
+
+        if (_fullDiagnosticHarnessWindow is { IsLoaded: true })
+        {
+            if (_fullDiagnosticHarnessWindow.WindowState == WindowState.Minimized)
+            {
+                _fullDiagnosticHarnessWindow.WindowState = WindowState.Normal;
+            }
+
+            _fullDiagnosticHarnessWindow.Activate();
+            return _fullDiagnosticHarnessWindowViewModel;
+        }
+
+        var owner = Application.Current?.Windows
+            .OfType<Window>()
+            .FirstOrDefault(window => window.IsActive)
+            ?? Application.Current?.MainWindow;
+
+        var window = new FullDiagnosticHarnessWindow(_fullDiagnosticHarnessWindowViewModel)
+        {
+            Owner = owner
+        };
+        window.Closed += OnFullDiagnosticHarnessWindowClosed;
+        _fullDiagnosticHarnessWindow = window;
+        window.Show();
+        window.Activate();
+        return _fullDiagnosticHarnessWindowViewModel;
+    }
+
+    private void OnFullDiagnosticHarnessWindowClosed(object? sender, EventArgs e)
+    {
+        if (_fullDiagnosticHarnessWindow is null)
+        {
+            return;
+        }
+
+        _fullDiagnosticHarnessWindow.Closed -= OnFullDiagnosticHarnessWindowClosed;
+        _fullDiagnosticHarnessWindow = null;
+    }
+
+    private void CloseFullDiagnosticHarnessWindow()
+    {
+        if (_fullDiagnosticHarnessWindow is null)
+        {
+            return;
+        }
+
+        _fullDiagnosticHarnessWindow.Closed -= OnFullDiagnosticHarnessWindowClosed;
+        _fullDiagnosticHarnessWindow.Close();
+        _fullDiagnosticHarnessWindow = null;
     }
 
     private async Task EnsureLocalAgentWorkspaceReadyOnStartupAsync()
@@ -4362,7 +4509,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private IReadOnlyList<string> ResolveHzdbSelectorCandidates()
     {
-        var candidates = new List<string>(3);
+        var candidates = new List<string>(5);
+        AddHzdbSelectorCandidate(
+            candidates,
+            _latestHeadsetStatus is { IsUsbAdbVisible: true } && !string.IsNullOrWhiteSpace(_latestHeadsetStatus.VisibleUsbSerial)
+                ? _latestHeadsetStatus.VisibleUsbSerial
+                : null);
+        AddHzdbSelectorCandidate(candidates, _latestHeadsetStatus?.IsConnected == true ? _latestHeadsetStatus.ConnectionLabel : null);
         AddHzdbSelectorCandidate(candidates, _sessionState.ActiveEndpoint);
         AddHzdbSelectorCandidate(candidates, string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim());
         AddHzdbSelectorCandidate(candidates, _sessionState.LastUsbSerial);

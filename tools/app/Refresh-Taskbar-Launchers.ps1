@@ -53,7 +53,17 @@ if ($null -eq $packagedApp) {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($packagedApp.InstallLocation)) {
-    $packagedIconPath = Join-Path $packagedApp.InstallLocation 'DopeCompanion.exe'
+    $packagedExecutablePath = Join-Path $packagedApp.InstallLocation 'DopeCompanion.App\DopeCompanion.exe'
+    if (-not (Test-Path $packagedExecutablePath)) {
+        $packagedExecutablePath = Join-Path $packagedApp.InstallLocation 'DopeCompanion.exe'
+    }
+
+    $packagedIconPath = if (Test-Path $packagedExecutablePath) {
+        $packagedExecutablePath
+    }
+    else {
+        Join-Path $repoRoot 'src\DopeCompanion.App\Assets\dope-companion.ico'
+    }
 }
 else {
     $packagedIconPath = Join-Path $repoRoot 'src\DopeCompanion.App\Assets\dope-companion.ico'
@@ -117,7 +127,7 @@ try {
         -Shell $shell `
         -ShortcutPath $devShortcutPath `
         -TargetPath $scriptHost `
-        -Arguments "//B //nologo `"$devLauncherHostPath`" -Configuration Release -NoBuild" `
+        -Arguments "//B //nologo `"$devLauncherHostPath`"" `
         -WorkingDirectory $repoRoot `
         -IconLocation "$devIconPath,0" `
         -Description 'Launch the repo-local DOPE Companion development build'

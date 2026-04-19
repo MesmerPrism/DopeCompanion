@@ -318,6 +318,27 @@ function Publish-BundledCliPayload {
     }
 }
 
+function Sync-PackageImagesToLayout {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$LayoutRoot
+    )
+
+    if (-not (Test-Path $SourceRoot)) {
+        throw "Package image source root was not found at $SourceRoot"
+    }
+
+    $destinationRoot = Join-Path $LayoutRoot 'Images'
+    if (Test-Path $destinationRoot) {
+        Remove-Item -Recurse -Force $destinationRoot
+    }
+
+    New-Item -ItemType Directory -Force -Path $destinationRoot | Out-Null
+    Copy-Item -Path (Join-Path $SourceRoot '*') -Destination $destinationRoot -Recurse -Force
+}
+
 function Set-ManifestValue {
     param(
         [Parameter(Mandatory = $true)]
@@ -360,6 +381,7 @@ $entryProjectPath = Join-Path $repoRoot 'src\DopeCompanion.App\DopeCompanion.App
 $cliProjectPath = Join-Path $repoRoot 'src\DopeCompanion.Cli\DopeCompanion.Cli.csproj'
 $packageProjectDir = Join-Path $repoRoot 'src\DopeCompanion.App.Package'
 $packageProjectPath = Join-Path $packageProjectDir 'DopeCompanion.App.Package.wapproj'
+$packageImagesRoot = Join-Path $packageProjectDir 'Images'
 $packageLayoutRoot = Join-Path $packageProjectDir "bin\$Platform\$Configuration"
 $packagePayloadRoot = Join-Path $packageLayoutRoot 'DopeCompanion.App'
 $manifestPath = Join-Path $packageProjectDir 'Package.appxmanifest'
@@ -477,6 +499,10 @@ try {
     if (-not (Test-Path $packagePayloadRoot)) {
         throw "Packaged desktop payload was not produced at $packagePayloadRoot"
     }
+
+    Sync-PackageImagesToLayout `
+        -SourceRoot $packageImagesRoot `
+        -LayoutRoot $packageLayoutRoot
 
     $bundledCliRoot = Join-Path $packagePayloadRoot 'cli\current'
     Publish-BundledCliPayload `

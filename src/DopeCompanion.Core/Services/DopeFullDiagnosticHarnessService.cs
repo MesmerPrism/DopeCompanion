@@ -20,7 +20,30 @@ public sealed record DopeFullDiagnosticHarnessRequest(
     bool GeneratePdf = true,
     bool CaptureQuestScreenshot = true,
     bool RunCommandAcceptanceCheck = true,
-    bool IncludeLslTwinChecks = true);
+    bool IncludeLslTwinChecks = true,
+    IProgress<DopeFullDiagnosticHarnessProgress>? Progress = null);
+
+public enum DopeFullDiagnosticHarnessProgressState
+{
+    Pending,
+    Running,
+    Completed
+}
+
+public sealed record DopeFullDiagnosticHarnessPlannedStep(
+    string Id,
+    string Label,
+    string Description);
+
+public sealed record DopeFullDiagnosticHarnessProgress(
+    string StepId,
+    string Label,
+    int StepIndex,
+    int TotalSteps,
+    DopeFullDiagnosticHarnessProgressState State,
+    OperationOutcomeKind Level,
+    string Summary,
+    string Detail);
 
 public sealed record DopeFullDiagnosticHarnessStep(
     string Id,
@@ -113,6 +136,69 @@ public sealed class DopeFullDiagnosticHarnessService
         _toolingServiceFactory = toolingServiceFactory ?? (() => new OfficialQuestToolingService());
     }
 
+    public static IReadOnlyList<DopeFullDiagnosticHarnessPlannedStep> BuildExecutionPlan(DopeFullDiagnosticHarnessRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return
+        [
+            new(
+                "managed-tooling",
+                "Managed Quest Tooling",
+                "Refresh hzdb, Android platform-tools, and scrcpy when the managed cache is incomplete."),
+            new(
+                "resolve-quest-connection",
+                "Resolve Quest Connection",
+                "Try the saved endpoint, Wi-Fi discovery, USB probe, and Wi-Fi ADB bootstrap until the headset responds."),
+            new(
+                "quest-connection",
+                "Verify Quest Connection",
+                "Confirm the headset is reachable and record the selector the rest of the harness will use."),
+            new(
+                "wake-headset",
+                "Wake Headset",
+                "Normalize the Quest into an awake state before install, profile, and launch steps."),
+            new(
+                "install-apk",
+                "Install Pinned APK",
+                "Reinstall the pinned public DOPE APK onto the connected headset."),
+            new(
+                "apply-device-profile",
+                "Apply Device Profile",
+                "Push the curated Quest device profile that the projected-feed public build expects."),
+            new(
+                "apply-scene-profile",
+                "Stage Scene Profile",
+                request.SceneProfile is null
+                    ? "No scene profile was requested for this run, so the harness will record this step as skipped."
+                    : "Stage the requested projected-feed Colorama scene profile before launch."),
+            new(
+                "launch-pinned-app",
+                "Launch Pinned App",
+                "Launch the pinned DOPE runtime in its requested kiosk mode."),
+            new(
+                "verify-foreground",
+                "Verify Foreground Runtime",
+                "Check that the intended runtime is installed, running, and foregrounded after launch."),
+            new(
+                "quest-screenshot",
+                "Capture Quest Screenshot",
+                request.CaptureQuestScreenshot
+                    ? "Capture a Quest proof screenshot after the runtime launch."
+                    : "Screenshot capture was disabled for this run, so the harness will record the step as skipped."),
+            new(
+                "diagnostics-report",
+                "Generate Diagnostics Report",
+                "Write the structured diagnostics report bundle after the Quest launch checks finish."),
+            new(
+                "diagnostics-pdf",
+                "Generate Diagnostics PDF",
+                request.GeneratePdf
+                    ? "Render the shareable diagnostics PDF from the generated diagnostics JSON."
+                    : "PDF rendering was disabled for this run, so the harness will record the step as skipped.")
+        ];
+    }
+
     public async Task<DopeFullDiagnosticHarnessResult> GenerateAsync(
         DopeFullDiagnosticHarnessRequest request,
         CancellationToken cancellationToken = default)
@@ -140,15 +226,113 @@ public sealed class DopeFullDiagnosticHarnessService
         string? questScreenshotPath = null;
         HeadsetAppStatus? latestHeadsetStatus = null;
         var completedAtUtc = DateTimeOffset.UtcNow;
+        var executionPlan = BuildExecutionPlan(request);
+        string? currentPlanStepId = null;
+
+        void ReportPlanStep(
+            string stepId,
+            DopeFullDiagnosticHarnessProgressState state,
+            OperationOutcomeKind level,
+            string summary,
+            string detail)
+        {
+            if (request.Progress is null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < executionPlan.Count; index++)
+            {
+                if (!string.Equals(executionPlan[index].Id, stepId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                request.Progress.Report(new DopeFullDiagnosticHarnessProgress(
+                    stepId,
+                    executionPlan[index].Label,
+                    index,
+                    executionPlan.Count,
+                    state,
+                    level,
+                    summary,
+                    detail));
+                return;
+            }
+        }
+
+        foreach (var step in executionPlan)
+        {
+            ReportPlanStep(
+                step.Id,
+                DopeFullDiagnosticHarnessProgressState.Pending,
+                OperationOutcomeKind.Preview,
+                "Pending",
+                step.Description);
+        }
+
+        void StartPlanStep(string stepId, string summary, string detail)
+        {
+            currentPlanStepId = stepId;
+            ReportPlanStep(
+                stepId,
+                DopeFullDiagnosticHarnessProgressState.Running,
+                OperationOutcomeKind.Preview,
+                summary,
+                detail);
+        }
+
+        void CompletePlanStep(string stepId, OperationOutcome outcome)
+        {
+            ReportPlanStep(
+                stepId,
+                DopeFullDiagnosticHarnessProgressState.Completed,
+                outcome.Kind,
+                outcome.Summary,
+                outcome.Detail);
+
+            if (string.Equals(currentPlanStepId, stepId, StringComparison.Ordinal))
+            {
+                currentPlanStepId = null;
+            }
+        }
+
+        void CompletePlanStepFromHarnessStep(string stepId, DopeFullDiagnosticHarnessStep step)
+        {
+            CompletePlanStep(
+                stepId,
+                new OperationOutcome(
+                    step.Level,
+                    step.Summary,
+                    step.Detail));
+        }
 
         try
         {
+            StartPlanStep(
+                "managed-tooling",
+                "Checking managed Quest tooling.",
+                "The harness is verifying that hzdb, Android platform-tools, and scrcpy are ready.");
             toolingStatus = await EnsureManagedToolingAsync(request, steps, cancellationToken).ConfigureAwait(false);
+            CompletePlanStepFromHarnessStep("managed-tooling", steps[^1]);
+
+            StartPlanStep(
+                "resolve-quest-connection",
+                "Resolving a usable Quest selector.",
+                "The harness may try the remembered endpoint, Wi-Fi discovery, USB probe, and Wi-Fi ADB bootstrap.");
             currentSelector = await EnsureConnectedSelectorAsync(target, request, steps, currentSelector, cancellationToken).ConfigureAwait(false);
             latestHeadsetStatus = await QueryHeadsetStatusSafeAsync(target, cancellationToken).ConfigureAwait(false);
+            CompletePlanStep(
+                "resolve-quest-connection",
+                BuildConnectionPreparationOutcome(currentSelector, latestHeadsetStatus));
 
             var connectedOutcome = BuildConnectionVerificationOutcome(latestHeadsetStatus, currentSelector);
+            StartPlanStep(
+                "quest-connection",
+                "Verifying live Quest connection.",
+                "The harness is confirming the headset responds before it continues to install, launch, and reporting.");
             steps.Add(ToStep("quest-connection", "Quest Connection", connectedOutcome));
+            CompletePlanStep("quest-connection", connectedOutcome);
             if (!string.IsNullOrWhiteSpace(connectedOutcome.Endpoint))
             {
                 currentSelector = connectedOutcome.Endpoint!;
@@ -160,57 +344,104 @@ public sealed class DopeFullDiagnosticHarnessService
 
             if (latestHeadsetStatus?.IsConnected == true)
             {
+                StartPlanStep(
+                    "wake-headset",
+                    "Waking the headset.",
+                    "The harness is normalizing the Quest into an awake state before the runtime steps continue.");
                 var wakeOutcome = await _questService
                     .RunUtilityAsync(QuestUtilityAction.Wake, allowWakeResumeTarget: true, cancellationToken)
                     .ConfigureAwait(false);
                 steps.Add(ToStep("wake-headset", "Wake Headset", wakeOutcome));
+                CompletePlanStep("wake-headset", wakeOutcome);
 
+                StartPlanStep(
+                    "install-apk",
+                    "Reinstalling the pinned public APK.",
+                    "The harness is pushing the pinned DOPE build to the connected Quest.");
                 var installOutcome = await _questService.InstallAppAsync(target, cancellationToken).ConfigureAwait(false);
                 steps.Add(ToStep("install-apk", "Install Pinned APK", installOutcome));
+                CompletePlanStep("install-apk", installOutcome);
 
+                StartPlanStep(
+                    "apply-device-profile",
+                    "Applying the curated device profile.",
+                    "The harness is pushing the pinned Quest device profile before launch.");
                 var profileOutcome = await _questService.ApplyDeviceProfileAsync(deviceProfile, cancellationToken).ConfigureAwait(false);
                 steps.Add(ToStep("apply-device-profile", "Apply Device Profile", profileOutcome));
+                CompletePlanStep("apply-device-profile", profileOutcome);
 
+                StartPlanStep(
+                    "apply-scene-profile",
+                    request.SceneProfile is null
+                        ? "Reviewing the scene profile step."
+                        : "Staging the requested scene profile.",
+                    request.SceneProfile is null
+                        ? "No scene profile was requested for this harness run."
+                        : "The harness is staging the projected-feed baseline scene profile before launch.");
                 if (request.SceneProfile is not null)
                 {
                     var hotloadOutcome = await _questService
                         .ApplyHotloadProfileAsync(request.SceneProfile, target, cancellationToken)
                         .ConfigureAwait(false);
                     steps.Add(ToStep("apply-scene-profile", "Stage Scene Profile", hotloadOutcome));
+                    CompletePlanStep("apply-scene-profile", hotloadOutcome);
                 }
                 else
                 {
-                    steps.Add(new DopeFullDiagnosticHarnessStep(
+                    var skippedSceneProfileStep = new DopeFullDiagnosticHarnessStep(
                         "apply-scene-profile",
                         "Stage Scene Profile",
                         OperationOutcomeKind.Preview,
                         "No scene profile was requested for the harness.",
-                        "The full harness can stage a bundled projected-feed Colorama CSV before launch, but this run skipped that step."));
+                        "The full harness can stage a bundled projected-feed Colorama CSV before launch, but this run skipped that step.");
+                    steps.Add(skippedSceneProfileStep);
+                    CompletePlanStepFromHarnessStep("apply-scene-profile", skippedSceneProfileStep);
                 }
 
+                StartPlanStep(
+                    "launch-pinned-app",
+                    "Launching the pinned public runtime.",
+                    "The harness is starting the public DOPE app on the connected Quest.");
                 var launchOutcome = await _questService
                     .LaunchAppAsync(target, request.Study.App.LaunchInKioskMode, cancellationToken)
                     .ConfigureAwait(false);
                 steps.Add(ToStep("launch-pinned-app", "Launch Pinned App", launchOutcome));
+                CompletePlanStep("launch-pinned-app", launchOutcome);
 
                 await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false);
                 latestHeadsetStatus = await QueryHeadsetStatusSafeAsync(target, cancellationToken).ConfigureAwait(false);
+                StartPlanStep(
+                    "verify-foreground",
+                    "Verifying the foreground runtime.",
+                    "The harness is checking whether the intended DOPE runtime actually reached the foreground.");
+                var foregroundOutcome = BuildForegroundVerificationOutcome(target, latestHeadsetStatus);
                 steps.Add(ToStep(
                     "verify-foreground",
                     "Verify Foreground Runtime",
-                    BuildForegroundVerificationOutcome(target, latestHeadsetStatus)));
+                    foregroundOutcome));
+                CompletePlanStep("verify-foreground", foregroundOutcome);
 
+                StartPlanStep(
+                    "quest-screenshot",
+                    request.CaptureQuestScreenshot
+                        ? "Capturing Quest proof screenshot."
+                        : "Reviewing the Quest screenshot step.",
+                    request.CaptureQuestScreenshot
+                        ? "The harness is collecting a screenshot after launch so the report bundle includes visual proof."
+                        : "Quest screenshot capture was disabled for this run.");
                 if (request.CaptureQuestScreenshot)
                 {
                     var screenshotSelector = ResolvePreferredSelector(currentSelector, latestHeadsetStatus?.ConnectionLabel);
                     if (string.IsNullOrWhiteSpace(screenshotSelector))
                     {
-                        steps.Add(new DopeFullDiagnosticHarnessStep(
+                        var skippedScreenshotStep = new DopeFullDiagnosticHarnessStep(
                             "quest-screenshot",
                             "Capture Quest Screenshot",
                             OperationOutcomeKind.Warning,
                             "Quest screenshot capture skipped.",
-                            "No usable Quest selector was available after the launch step."));
+                            "No usable Quest selector was available after the launch step.");
+                        steps.Add(skippedScreenshotStep);
+                        CompletePlanStepFromHarnessStep("quest-screenshot", skippedScreenshotStep);
                     }
                     else
                     {
@@ -224,18 +455,25 @@ public sealed class DopeFullDiagnosticHarnessService
                         }
 
                         steps.Add(ToStep("quest-screenshot", "Capture Quest Screenshot", screenshotOutcome));
+                        CompletePlanStep("quest-screenshot", screenshotOutcome);
                     }
                 }
                 else
                 {
-                    steps.Add(new DopeFullDiagnosticHarnessStep(
+                    var skippedScreenshotStep = new DopeFullDiagnosticHarnessStep(
                         "quest-screenshot",
                         "Capture Quest Screenshot",
                         OperationOutcomeKind.Preview,
                         "Quest screenshot capture skipped by request.",
-                        "This run did not request a Quest proof screenshot."));
+                        "This run did not request a Quest proof screenshot.");
+                    steps.Add(skippedScreenshotStep);
+                    CompletePlanStepFromHarnessStep("quest-screenshot", skippedScreenshotStep);
                 }
 
+                StartPlanStep(
+                    "diagnostics-report",
+                    "Generating diagnostics report.",
+                    "The harness is collecting the structured diagnostics JSON and TeX report bundle.");
                 try
                 {
                     var diagnosticsService = new DopeDiagnosticsReportService(
@@ -256,23 +494,35 @@ public sealed class DopeFullDiagnosticHarnessService
                             cancellationToken)
                         .ConfigureAwait(false);
 
-                    steps.Add(new DopeFullDiagnosticHarnessStep(
+                    var diagnosticsReportStep = new DopeFullDiagnosticHarnessStep(
                         "diagnostics-report",
                         "Generate Diagnostics Report",
                         diagnosticsReportResult.Level,
                         diagnosticsReportResult.Summary,
-                        diagnosticsReportResult.Detail));
+                        diagnosticsReportResult.Detail);
+                    steps.Add(diagnosticsReportStep);
+                    CompletePlanStepFromHarnessStep("diagnostics-report", diagnosticsReportStep);
                 }
                 catch (Exception ex)
                 {
-                    steps.Add(new DopeFullDiagnosticHarnessStep(
+                    var diagnosticsReportStep = new DopeFullDiagnosticHarnessStep(
                         "diagnostics-report",
                         "Generate Diagnostics Report",
                         OperationOutcomeKind.Failure,
                         "Diagnostics report generation failed.",
-                        ex.Message));
+                        ex.Message);
+                    steps.Add(diagnosticsReportStep);
+                    CompletePlanStepFromHarnessStep("diagnostics-report", diagnosticsReportStep);
                 }
 
+                StartPlanStep(
+                    "diagnostics-pdf",
+                    request.GeneratePdf
+                        ? "Generating diagnostics PDF."
+                        : "Reviewing the diagnostics PDF step.",
+                    request.GeneratePdf
+                        ? "The harness is rendering the shareable diagnostics PDF from the generated diagnostics JSON."
+                        : "Diagnostics PDF generation was disabled for this run.");
                 pdfOutcome = diagnosticsReportResult is null
                     ? new OperationOutcome(
                         OperationOutcomeKind.Warning,
@@ -286,10 +536,15 @@ public sealed class DopeFullDiagnosticHarnessService
                         .ConfigureAwait(false);
 
                 steps.Add(ToStep("diagnostics-pdf", "Generate Diagnostics PDF", pdfOutcome));
+                CompletePlanStep("diagnostics-pdf", pdfOutcome);
             }
             else
             {
-                steps.AddRange(BuildSkippedQuestExecutionSteps(request.CaptureQuestScreenshot));
+                foreach (var skippedStep in BuildSkippedQuestExecutionSteps(request.CaptureQuestScreenshot))
+                {
+                    steps.Add(skippedStep);
+                    CompletePlanStepFromHarnessStep(skippedStep.Id, skippedStep);
+                }
                 pdfOutcome = new OperationOutcome(
                     OperationOutcomeKind.Warning,
                     "Diagnostics PDF generation skipped.",
@@ -298,6 +553,16 @@ public sealed class DopeFullDiagnosticHarnessService
         }
         catch (Exception ex)
         {
+            if (!string.IsNullOrWhiteSpace(currentPlanStepId))
+            {
+                CompletePlanStep(
+                    currentPlanStepId,
+                    new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "Harness step failed.",
+                        ex.Message));
+            }
+
             steps.Add(new DopeFullDiagnosticHarnessStep(
                 "fatal",
                 "Harness Execution",
@@ -552,6 +817,33 @@ public sealed class DopeFullDiagnosticHarnessService
             OperationOutcomeKind.Preview,
             "Diagnostics PDF generation skipped.",
             "The structured diagnostics report did not run, so the PDF step could not run either.");
+    }
+
+    private static OperationOutcome BuildConnectionPreparationOutcome(string selector, HeadsetAppStatus? status)
+    {
+        var resolvedSelector = ResolvePreferredSelector(selector, status?.ConnectionLabel);
+        if (status?.IsConnected == true)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                $"Quest selector prepared: {resolvedSelector}.",
+                "Connection attempts completed and the harness can continue with the verified headset session.",
+                Endpoint: resolvedSelector);
+        }
+
+        if (!string.IsNullOrWhiteSpace(resolvedSelector))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"Quest selector prepared: {resolvedSelector}.",
+                "Connection attempts produced a selector, but the headset did not confirm a live connection yet. The verification step will decide whether the harness can continue.",
+                Endpoint: resolvedSelector);
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Failure,
+            "No usable Quest selector was prepared.",
+            "The harness exhausted the remembered endpoint, Wi-Fi discovery, USB probe, and Wi-Fi ADB bootstrap checks without finding a usable Quest selector.");
     }
 
     private static OperationOutcome BuildConnectionVerificationOutcome(HeadsetAppStatus? status, string selector)

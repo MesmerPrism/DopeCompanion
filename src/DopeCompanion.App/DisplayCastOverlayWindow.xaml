@@ -41,6 +41,14 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="OverlayReservedPanelStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+        </Style>
     </Window.Resources>
 
     <Grid x:Name="RootChrome"
@@ -115,59 +123,88 @@
                     CornerRadius="2" />
         </Grid>
 
-        <Border x:Name="HeaderChrome"
-                Margin="14,14,14,0"
-                VerticalAlignment="Top"
-                Style="{StaticResource PanelBorderStyle}"
-                Padding="12,10"
-                PreviewMouseLeftButtonDown="OnHeaderMouseLeftButtonDown">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="16" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+        <Grid Margin="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="14" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="280" />
+            </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="Display 0 cast"
-                               FontSize="22"
-                               FontWeight="Bold" />
-                    <TextBlock x:Name="CaptureSourceText"
-                               Margin="0,4,0,0"
-                               Style="{StaticResource OverlayCaptionStyle}" />
-                </StackPanel>
+            <Border x:Name="HeaderChrome"
+                    Grid.Row="0"
+                    Grid.ColumnSpan="3"
+                    Style="{StaticResource PanelBorderStyle}"
+                    Padding="12,10"
+                    PreviewMouseLeftButtonDown="OnHeaderMouseLeftButtonDown">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="2"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center">
-                    <StackPanel VerticalAlignment="Center"
-                                Margin="0,0,8,0">
-                        <TextBlock Text="Window size"
-                                   Style="{StaticResource OverlayCaptionStyle}" />
-                        <TextBlock x:Name="WindowSizeText"
-                                   FontFamily="{StaticResource MonoFont}"
-                                   FontSize="16"
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Display 0 cast"
+                                   FontSize="22"
                                    FontWeight="Bold" />
+                        <TextBlock x:Name="CaptureSourceText"
+                                   Margin="0,4,0,0"
+                                   Style="{StaticResource OverlayCaptionStyle}" />
                     </StackPanel>
 
-                    <Button x:Name="MinimizeButton"
-                            Content="Minimize"
-                            Style="{StaticResource OverlayHeaderButtonStyle}"
-                            PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown"
-                            Click="OnMinimizeWindowClicked" />
-                    <Button x:Name="FullscreenButton"
-                            Content="Full Size"
-                            Style="{StaticResource OverlayHeaderButtonStyle}"
-                            PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown"
-                            Click="OnToggleFullscreenWindowClicked" />
-                    <Button x:Name="StopButton"
-                            Content="Stop"
-                            Style="{StaticResource OverlayHeaderButtonStyle}"
-                            PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown"
-                            Click="OnStopWindowClicked" />
-                </StackPanel>
-            </Grid>
-        </Border>
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <StackPanel VerticalAlignment="Center"
+                                    Margin="0,0,8,0">
+                            <TextBlock Text="Window size"
+                                       Style="{StaticResource OverlayCaptionStyle}" />
+                            <TextBlock x:Name="WindowSizeText"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="16"
+                                       FontWeight="Bold" />
+                        </StackPanel>
+
+                        <Button x:Name="MinimizeButton"
+                                Content="Minimize"
+                                Style="{StaticResource OverlayHeaderButtonStyle}"
+                                PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown"
+                                Click="OnMinimizeWindowClicked" />
+                        <Button x:Name="FullscreenButton"
+                                Content="Full Size"
+                                Style="{StaticResource OverlayHeaderButtonStyle}"
+                                PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown"
+                                Click="OnToggleFullscreenWindowClicked" />
+                        <Button x:Name="StopButton"
+                                Content="Stop"
+                                Style="{StaticResource OverlayHeaderButtonStyle}"
+                                PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown"
+                                Click="OnStopWindowClicked" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border x:Name="VideoViewportSlot"
+                    Grid.Row="2"
+                    Grid.Column="0"
+                    Background="Transparent"
+                    BorderBrush="{StaticResource LineBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    IsHitTestVisible="False"
+                    SnapsToDevicePixels="True" />
+
+            <Border x:Name="SidebarChrome"
+                    Grid.Row="2"
+                    Grid.Column="2"
+                    Style="{StaticResource OverlayReservedPanelStyle}"
+                    PreviewMouseLeftButtonDown="OnHeaderMouseLeftButtonDown" />
+        </Grid>
 
         <primitives:Thumb x:Name="LeftGrip"
                           HorizontalAlignment="Left"

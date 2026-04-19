@@ -20,6 +20,10 @@ TOP_Y = 10.95
 BOTTOM_Y = 0.55
 BODY_SIZE = 8.0
 SMALL_SIZE = 7.0
+BODY_LINE_H = 0.17
+SMALL_LINE_H = 0.165
+SECTION_GAP = 0.18
+PAGE_RIGHT = PAGE_W - MARGIN_X
 TITLE_COLOR = "#1f2933"
 TEXT_COLOR = "#263238"
 MUTED_COLOR = "#5c6770"
@@ -49,15 +53,43 @@ def text_value(value: Any) -> str:
     return str(value)
 
 
-def wrap_lines(text: Any, width: int = 118) -> list[str]:
+def wrap_lines(
+    text: Any,
+    width: int = 118,
+    *,
+    break_long_words: bool = False,
+    break_on_hyphens: bool = False,
+) -> list[str]:
     raw = text_value(text).replace("\r", "")
     lines: list[str] = []
     for paragraph in raw.split("\n"):
         if not paragraph.strip():
             lines.append("")
             continue
-        lines.extend(textwrap.wrap(paragraph, width=width, break_long_words=False, replace_whitespace=False) or [""])
+        lines.extend(
+            textwrap.wrap(
+                paragraph,
+                width=width,
+                break_long_words=break_long_words,
+                break_on_hyphens=break_on_hyphens,
+                replace_whitespace=False,
+            ) or [""]
+        )
     return lines
+
+
+def wrap_for_width(text: Any, width_inches: float, chars_per_inch: float, *, allow_token_break: bool = False) -> list[str]:
+    return wrap_lines(
+        text,
+        width=max(8, int(width_inches * chars_per_inch)),
+        break_long_words=allow_token_break,
+        break_on_hyphens=allow_token_break,
+    )
+
+
+def is_path_like(text: Any) -> bool:
+    raw = text_value(text)
+    return "\\" in raw or "/" in raw or raw.endswith((".json", ".tex", ".pdf", ".dll", ".exe", ".apk"))
 
 
 def level_label(level: Any) -> str:
@@ -82,11 +114,14 @@ class PdfWriter:
     def new_page(self) -> None:
         if self.fig is not None:
             self.ax.text(PAGE_W - MARGIN_X, 0.28, f"Page {self.page}", ha="right", va="bottom", fontsize=6, color=MUTED_COLOR)
-            self.pdf.savefig(self.fig, bbox_inches="tight")
+            self.pdf.savefig(self.fig)
             plt.close(self.fig)
 
         self.page += 1
         self.fig, self.ax = plt.subplots(figsize=(PAGE_W, PAGE_H))
+        self.fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        self.ax.set_xlim(0, PAGE_W)
+        self.ax.set_ylim(0, PAGE_H)
         self.ax.axis("off")
         self.y = TOP_Y
 
@@ -94,7 +129,7 @@ class PdfWriter:
         if self.fig is None:
             return
         self.ax.text(PAGE_W - MARGIN_X, 0.28, f"Page {self.page}", ha="right", va="bottom", fontsize=6, color=MUTED_COLOR)
-        self.pdf.savefig(self.fig, bbox_inches="tight")
+        self.pdf.savefig(self.fig)
         plt.close(self.fig)
         self.fig = None
         self.ax = None
@@ -118,45 +153,71 @@ class PdfWriter:
         self.ax.text(MARGIN_X, self.y, title, ha="left", va="top", fontsize=10.5, weight="bold", color=TITLE_COLOR)
         self.y -= 0.23
         self.ax.plot([MARGIN_X, PAGE_W - MARGIN_X], [self.y, self.y], color=RULE_COLOR, linewidth=0.5)
-        self.y -= 0.18
+        self.y -= SECTION_GAP
 
     def key_values(self, rows: Iterable[tuple[str, Any]]) -> None:
+        key_x = MARGIN_X
+        value_x = MARGIN_X + 2.0
+        key_width = value_x - key_x - 0.16
+        value_width = PAGE_RIGHT - value_x
         for key, value in rows:
-            lines = wrap_lines(value, width=88)
-            needed = max(0.22, 0.17 * len(lines)) + 0.05
+            key_lines = wrap_for_width(key, key_width, chars_per_inch=13.0)
+            value_chars = 10.5 if is_path_like(value) else 13.0
+            value_lines = wrap_for_width(value, value_width, chars_per_inch=value_chars, allow_token_break=is_path_like(value))
+            line_count = max(len(key_lines), len(value_lines))
+            needed = max(0.22, SMALL_LINE_H * line_count) + 0.06
             self.ensure(needed)
-            self.ax.text(MARGIN_X, self.y, key, ha="left", va="top", fontsize=SMALL_SIZE, weight="bold", color=MUTED_COLOR)
-            x_value = MARGIN_X + 1.85
-            for i, line in enumerate(lines):
-                self.ax.text(x_value, self.y - 0.17 * i, line, ha="left", va="top", fontsize=SMALL_SIZE, color=TEXT_COLOR)
+            for i, line in enumerate(key_lines):
+                self.ax.text(key_x, self.y - SMALL_LINE_H * i, line, ha="left", va="top", fontsize=SMALL_SIZE, weight="bold", color=MUTED_COLOR)
+            value_kwargs = {"family": "monospace"} if is_path_like(value) else {}
+            for i, line in enumerate(value_lines):
+                self.ax.text(value_x, self.y - SMALL_LINE_H * i, line, ha="left", va="top", fontsize=SMALL_SIZE, color=TEXT_COLOR, **value_kwargs)
             self.y -= needed
 
     def check_rows(self, checks: Iterable[dict[str, Any]]) -> None:
+        level_x = MARGIN_X
+        label_x = MARGIN_X + 0.78
+        body_x = MARGIN_X + 3.0
+        label_width = body_x - label_x - 0.12
+        body_width = PAGE_RIGHT - body_x
         for check in checks:
             level = level_label(check.get("Level"))
             label = text_value(check.get("Label"))
             body = f"{text_value(check.get('Summary'))} {text_value(check.get('Detail'))}".strip()
-            lines = wrap_lines(body, width=82)
-            needed = max(0.26, 0.17 * len(lines)) + 0.08
+            label_lines = wrap_for_width(label, label_width, chars_per_inch=13.0)
+            body_lines = wrap_for_width(
+                body,
+                body_width,
+                chars_per_inch=10.8 if is_path_like(body) else 11.8,
+                allow_token_break=is_path_like(body),
+            )
+            line_count = max(len(label_lines), len(body_lines))
+            needed = max(0.26, BODY_LINE_H * line_count) + 0.09
             self.ensure(needed)
-            self.ax.text(MARGIN_X, self.y, level, ha="left", va="top", fontsize=SMALL_SIZE, weight="bold", color=LEVEL_COLORS.get(level, MUTED_COLOR))
-            self.ax.text(MARGIN_X + 0.72, self.y, label, ha="left", va="top", fontsize=SMALL_SIZE, weight="bold", color=TEXT_COLOR)
-            x_body = MARGIN_X + 2.55
-            for i, line in enumerate(lines):
-                self.ax.text(x_body, self.y - 0.17 * i, line, ha="left", va="top", fontsize=SMALL_SIZE, color=TEXT_COLOR)
+            self.ax.text(level_x, self.y, level, ha="left", va="top", fontsize=SMALL_SIZE, weight="bold", color=LEVEL_COLORS.get(level, MUTED_COLOR))
+            for i, line in enumerate(label_lines):
+                self.ax.text(label_x, self.y - BODY_LINE_H * i, line, ha="left", va="top", fontsize=SMALL_SIZE, weight="bold", color=TEXT_COLOR)
+            for i, line in enumerate(body_lines):
+                self.ax.text(body_x, self.y - BODY_LINE_H * i, line, ha="left", va="top", fontsize=SMALL_SIZE, color=TEXT_COLOR)
             self.y -= needed
 
     def telemetry_rows(self, rows: Iterable[dict[str, Any]]) -> None:
+        key_x = MARGIN_X
+        value_x = MARGIN_X + 2.4
+        key_width = value_x - key_x - 0.15
+        value_width = PAGE_RIGHT - value_x
         for row in rows:
             key = text_value(row.get("Key"))
             value = text_value(row.get("Value"))
-            lines = wrap_lines(value, width=86)
-            needed = max(0.2, 0.16 * len(lines)) + 0.04
+            key_lines = wrap_for_width(key, key_width, chars_per_inch=11.0)
+            value_lines = wrap_for_width(value, value_width, chars_per_inch=10.8, allow_token_break=True)
+            line_count = max(len(key_lines), len(value_lines))
+            needed = max(0.2, 0.16 * line_count) + 0.05
             self.ensure(needed)
-            self.ax.text(MARGIN_X, self.y, key, ha="left", va="top", fontsize=6.5, color=MUTED_COLOR, family="monospace")
-            x_value = MARGIN_X + 2.65
-            for i, line in enumerate(lines):
-                self.ax.text(x_value, self.y - 0.16 * i, line, ha="left", va="top", fontsize=6.5, color=TEXT_COLOR, family="monospace")
+            for i, line in enumerate(key_lines):
+                self.ax.text(key_x, self.y - 0.16 * i, line, ha="left", va="top", fontsize=6.5, color=MUTED_COLOR, family="monospace")
+            for i, line in enumerate(value_lines):
+                self.ax.text(value_x, self.y - 0.16 * i, line, ha="left", va="top", fontsize=6.5, color=TEXT_COLOR, family="monospace")
             self.y -= needed
 
 
