@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework"
         xmlns:viewModels="clr-namespace:DopeCompanion.App.ViewModels"
+        xmlns:models="clr-namespace:DopeCompanion.Core.Models;assembly=DopeCompanion.Core"
         x:ClassModifier="internal"
         Title="DOPE Companion Cast Controls"
         Width="1120"
@@ -442,12 +443,89 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="8" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="8" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="10" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0">
+                        <TextBlock Text="Focused layer preview"
+                                   FontSize="18"
+                                   FontWeight="Bold" />
+                        <TextBlock Text="{Binding LiveSessionCastFocusedLayerPreviewSummary}"
+                                   Margin="0,4,0,0"
+                                   FontSize="13"
+                                   FontWeight="Bold"
+                                   ToolTip="{Binding LiveSessionCastFocusedLayerPreviewDetail}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LiveSessionCastFocusedLayerPreviewLevel}" Value="{x:Static models:OperationOutcomeKind.Success}">
+                                            <Setter Property="Foreground" Value="{StaticResource StatusSuccessBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding LiveSessionCastFocusedLayerPreviewLevel}" Value="{x:Static models:OperationOutcomeKind.Warning}">
+                                            <Setter Property="Foreground" Value="{StaticResource StatusWarningBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding LiveSessionCastFocusedLayerPreviewLevel}" Value="{x:Static models:OperationOutcomeKind.Failure}">
+                                            <Setter Property="Foreground" Value="{StaticResource StatusFailureBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding LiveSessionCastFocusedLayerPreviewDetail}"
+                                   Margin="0,4,0,0"
+                                   Style="{StaticResource OverlayCaptionStyle}" />
+                    </StackPanel>
+
+                    <Border Grid.Row="2"
+                            Height="162"
+                            Padding="6"
+                            Background="{StaticResource SurfaceTintBrush}"
+                            BorderBrush="{StaticResource LineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            ToolTip="{Binding LiveSessionCastFocusedLayerPreviewArtifactPath}">
+                        <Grid>
+                            <Image Source="{Binding LiveSessionCastFocusedLayerPreviewImage}"
+                                   Stretch="Uniform"
+                                   SnapsToDevicePixels="True">
+                                <Image.Style>
+                                    <Style TargetType="Image">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasLiveSessionCastFocusedLayerPreviewImage}" Value="False">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Image.Style>
+                            </Image>
+
+                            <TextBlock Text="Waiting for the next direct Quest layer frame."
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource OverlayCaptionStyle}">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasLiveSessionCastFocusedLayerPreviewImage}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Border>
+
+                    <StackPanel Grid.Row="4">
                         <TextBlock Text="Live tweak values"
                                    FontSize="18"
                                    FontWeight="Bold" />
@@ -456,13 +534,13 @@
                                    Style="{StaticResource OverlayCaptionStyle}" />
                     </StackPanel>
 
-                    <ScrollViewer Grid.Row="2"
+                    <ScrollViewer Grid.Row="6"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <ItemsControl ItemsSource="{Binding LiveSessionCastSidebarSettings}" />
                     </ScrollViewer>
 
-                    <Button Grid.Row="4"
+                    <Button Grid.Row="8"
                             Content="Apply"
                             Command="{Binding ApplyLiveSessionRuntimeConfigCommand}"
                             Style="{StaticResource OverlayPrimaryActionButtonStyle}"

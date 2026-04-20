@@ -6,6 +6,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using DopeCompanion.App;
 using DopeCompanion.Core.Models;
@@ -73,6 +74,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly RuntimeConfigWorkspaceViewModel _runtimeConfig = new();
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
     private readonly QuestDisplayCastService _questDisplayCastService = new();
+    private readonly FocusedLayerPreviewService _focusedLayerPreviewService = new();
     private readonly DopeParticleSizeTuningCompiler _dopeParticleSizeTuningCompiler = new();
     private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly Dispatcher _dispatcher;
@@ -206,6 +208,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _liveSessionCastLevel = OperationOutcomeKind.Preview;
     private string _liveSessionCastSummary = "Display 0 cast idle.";
     private string _liveSessionCastDetail = "Start the cast to open Display 0 in a separate scrcpy window.";
+    private OperationOutcomeKind _liveSessionCastFocusedLayerPreviewLevel = OperationOutcomeKind.Preview;
+    private string _liveSessionCastFocusedLayerPreviewSummary = "Focused layer preview idle.";
+    private string _liveSessionCastFocusedLayerPreviewDetail = "Start the cast to listen for direct Quest layer preview frames.";
+    private BitmapImage? _liveSessionCastFocusedLayerPreviewImage;
     private OperationOutcomeKind _liveSessionProximityLevel = OperationOutcomeKind.Preview;
     private string _liveSessionProximitySummary = "Quest proximity state not checked yet.";
     private string _liveSessionProximityDetail = "Refresh the live session snapshot to read the current Quest wear-sensor state.";
@@ -244,6 +250,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         UpdateLslRuntimeState();
         _runtimeConfig.PropertyChanged += OnRuntimeConfigPropertyChanged;
         _questDisplayCastService.StateChanged += OnQuestDisplayCastStateChanged;
+        _focusedLayerPreviewService.StateChanged += OnFocusedLayerPreviewStateChanged;
         foreach (var scope in TwinInspectorScopeCatalog)
         {
             TwinInspectorScopes.Add(scope);
@@ -320,6 +327,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RefreshDopeParticleTuningState();
         RefreshLiveSessionEditors();
         RefreshLiveSessionCastState();
+        RefreshLiveSessionCastFocusedLayerPreviewState();
         _ = EnsureLocalAgentWorkspaceReadyOnStartupAsync();
     }
 
@@ -1369,6 +1377,36 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             ? "Turn Off"
             : "Turn On";
 
+    public OperationOutcomeKind LiveSessionCastFocusedLayerPreviewLevel
+    {
+        get => _liveSessionCastFocusedLayerPreviewLevel;
+        private set => SetProperty(ref _liveSessionCastFocusedLayerPreviewLevel, value);
+    }
+
+    public string LiveSessionCastFocusedLayerPreviewSummary
+    {
+        get => _liveSessionCastFocusedLayerPreviewSummary;
+        private set => SetProperty(ref _liveSessionCastFocusedLayerPreviewSummary, value);
+    }
+
+    public string LiveSessionCastFocusedLayerPreviewDetail
+    {
+        get => _liveSessionCastFocusedLayerPreviewDetail;
+        private set => SetProperty(ref _liveSessionCastFocusedLayerPreviewDetail, value);
+    }
+
+    public BitmapImage? LiveSessionCastFocusedLayerPreviewImage
+    {
+        get => _liveSessionCastFocusedLayerPreviewImage;
+        private set => SetProperty(ref _liveSessionCastFocusedLayerPreviewImage, value);
+    }
+
+    public bool HasLiveSessionCastFocusedLayerPreviewImage
+        => LiveSessionCastFocusedLayerPreviewImage is not null;
+
+    public string LiveSessionCastFocusedLayerPreviewArtifactPath
+        => NormalizeHostVisibleOperatorPath(_focusedLayerPreviewService.LatestArtifactPath);
+
     public string LiveSessionRuntimeReadbackSummary
     {
         get => _liveSessionRuntimeReadbackSummary;
@@ -1713,6 +1751,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _testLslSignalService.Dispose();
         _runtimeConfig.PropertyChanged -= OnRuntimeConfigPropertyChanged;
         _questDisplayCastService.StateChanged -= OnQuestDisplayCastStateChanged;
+        _focusedLayerPreviewService.StateChanged -= OnFocusedLayerPreviewStateChanged;
         CloseFullDiagnosticHarnessWindow();
         CloseLiveSessionWindow();
         CloseLiveSessionCastOverlayWindow();
@@ -1720,6 +1759,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         DisposeLiveSessionSettings(LiveSessionSecondarySettings);
         _liveSessionCastFocusLayerSetting?.Dispose();
         _liveSessionCastAudioTriggerSetting?.Dispose();
+        _focusedLayerPreviewService.Dispose();
         _questDisplayCastService.Dispose();
         ActiveStudyShell?.Dispose();
 
@@ -3268,30 +3308,99 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private async Task StartLiveSessionCastAsync()
     {
         var selector = ResolveDisplayCastSelector();
-        var outcome = await _questDisplayCastService.StartDisplay0Async(selector).ConfigureAwait(false);
-        await ApplyOutcomeAsync("Start Display 0 Cast", outcome).ConfigureAwait(false);
+        var castOutcome = await _questDisplayCastService.StartDisplay0Async(selector).ConfigureAwait(false);
+        var previewOutcome = castOutcome.Kind == OperationOutcomeKind.Failure
+            ? new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "Focused layer preview skipped.",
+                "The direct layer preview bridge was not started because the Display 0 cast did not open.")
+            : await _focusedLayerPreviewService.StartAsync(selector).ConfigureAwait(false);
+
+        await ApplyOutcomeAsync(
+            "Start Display 0 Cast",
+            CombineLiveSessionCastOutcomes(castOutcome, previewOutcome)).ConfigureAwait(false);
         await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
     }
 
     private async Task StopLiveSessionCastAsync()
     {
-        var outcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
-        await ApplyOutcomeAsync("Stop Display 0 Cast", outcome).ConfigureAwait(false);
+        var castOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
+        var previewOutcome = await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);
+        await ApplyOutcomeAsync(
+            "Stop Display 0 Cast",
+            CombineLiveSessionCastOutcomes(castOutcome, previewOutcome)).ConfigureAwait(false);
         await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
     }
 
     private async Task RestartLiveSessionCastAsync()
     {
-        var stopOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
-        var startOutcome = await _questDisplayCastService.StartDisplay0Async(ResolveDisplayCastSelector()).ConfigureAwait(false);
+        var selector = ResolveDisplayCastSelector();
+        var stopCastOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
+        var stopPreviewOutcome = await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);
+        var startCastOutcome = await _questDisplayCastService.StartDisplay0Async(selector).ConfigureAwait(false);
+        var startPreviewOutcome = startCastOutcome.Kind == OperationOutcomeKind.Failure
+            ? new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "Focused layer preview skipped.",
+                "The direct layer preview bridge was not restarted because the Display 0 cast did not reopen.")
+            : await _focusedLayerPreviewService.StartAsync(selector).ConfigureAwait(false);
+
         await ApplyOutcomeAsync(
             "Restart Display 0 Cast",
-            new OperationOutcome(
-                startOutcome.Kind,
-                startOutcome.Summary,
-                $"{stopOutcome.Detail} {startOutcome.Detail}".Trim())).ConfigureAwait(false);
+            CombineLiveSessionCastOutcomes(
+                startCastOutcome,
+                new OperationOutcome(
+                    GetMoreSevereOutcomeKind(stopPreviewOutcome.Kind, startPreviewOutcome.Kind),
+                    startPreviewOutcome.Summary,
+                    $"{stopCastOutcome.Detail} {stopPreviewOutcome.Detail} {startPreviewOutcome.Detail}".Trim(),
+                    startPreviewOutcome.Endpoint,
+                    Items: stopPreviewOutcome.SafeItems.Concat(startPreviewOutcome.SafeItems).ToArray()))).ConfigureAwait(false);
         await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
     }
+
+    private async Task EnsureLiveSessionCastFocusedLayerPreviewAsync()
+    {
+        var selector = ResolveDisplayCastSelector();
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return;
+        }
+
+        await _focusedLayerPreviewService.StartAsync(selector).ConfigureAwait(false);
+        await DispatchAsync(RefreshLiveSessionCastFocusedLayerPreviewState).ConfigureAwait(false);
+    }
+
+    private async Task StopLiveSessionCastFocusedLayerPreviewAsync()
+    {
+        await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);
+        await DispatchAsync(RefreshLiveSessionCastFocusedLayerPreviewState).ConfigureAwait(false);
+    }
+
+    private static OperationOutcome CombineLiveSessionCastOutcomes(OperationOutcome castOutcome, OperationOutcome previewOutcome)
+    {
+        var combinedItems = castOutcome.SafeItems.Concat(previewOutcome.SafeItems).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return new OperationOutcome(
+            GetMoreSevereOutcomeKind(castOutcome.Kind, previewOutcome.Kind),
+            castOutcome.Summary,
+            $"{castOutcome.Detail} {previewOutcome.Detail}".Trim(),
+            castOutcome.Endpoint ?? previewOutcome.Endpoint,
+            castOutcome.PackageId ?? previewOutcome.PackageId,
+            combinedItems);
+    }
+
+    private static OperationOutcomeKind GetMoreSevereOutcomeKind(OperationOutcomeKind left, OperationOutcomeKind right)
+        => GetOutcomeSeverity(left) >= GetOutcomeSeverity(right)
+            ? left
+            : right;
+
+    private static int GetOutcomeSeverity(OperationOutcomeKind kind)
+        => kind switch
+        {
+            OperationOutcomeKind.Failure => 4,
+            OperationOutcomeKind.Warning => 3,
+            OperationOutcomeKind.Success => 2,
+            _ => 1
+        };
 
     private async Task RefreshLiveSessionProximityStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -3419,15 +3528,28 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         StopLiveSessionCastCommand.RaiseCanExecuteChanged();
     }
 
+    private void RefreshLiveSessionCastFocusedLayerPreviewState()
+    {
+        LiveSessionCastFocusedLayerPreviewLevel = _focusedLayerPreviewService.Level;
+        LiveSessionCastFocusedLayerPreviewSummary = _focusedLayerPreviewService.Summary;
+        LiveSessionCastFocusedLayerPreviewDetail = _focusedLayerPreviewService.Detail;
+        LiveSessionCastFocusedLayerPreviewImage = LoadQuestScreenshotPreview(_focusedLayerPreviewService.LatestArtifactPath);
+        OnPropertyChanged(nameof(HasLiveSessionCastFocusedLayerPreviewImage));
+        OnPropertyChanged(nameof(LiveSessionCastFocusedLayerPreviewArtifactPath));
+    }
+
     private void SyncLiveSessionCastSurface()
     {
         RefreshLiveSessionCastState();
+        RefreshLiveSessionCastFocusedLayerPreviewState();
         if (_questDisplayCastService.IsRunning)
         {
+            _ = EnsureLiveSessionCastFocusedLayerPreviewAsync();
             EnsureLiveSessionCastOverlayWindow();
             return;
         }
 
+        _ = StopLiveSessionCastFocusedLayerPreviewAsync();
         CloseLiveSessionCastOverlayWindow();
     }
 
@@ -5097,6 +5219,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _ = _dispatcher.InvokeAsync(SyncLiveSessionCastSurface);
     }
 
+    private void OnFocusedLayerPreviewStateChanged(object? sender, EventArgs e)
+    {
+        _ = _dispatcher.InvokeAsync(RefreshLiveSessionCastFocusedLayerPreviewState);
+    }
+
     private void OnTwinRefreshTimerTick(object? sender, EventArgs e)
     {
         if (!_twinRefreshPending)
@@ -5849,6 +5976,30 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private QuestAppTarget WithResolvedApkPath(QuestAppTarget target)
         => target with { ApkFile = ResolveApkPathForTarget(target) ?? string.Empty };
+
+    private static BitmapImage? LoadQuestScreenshotPreview(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            image.UriSource = new Uri(path, UriKind.Absolute);
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private Task DispatchAsync(Action action)
     {

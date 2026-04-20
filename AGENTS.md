@@ -46,6 +46,10 @@ then refresh the mirrored APK here.
 - Use `tools\app\Sync-Bundled-Dope-Apk.ps1` to refresh the bundled APK mirror
   and pinned hash metadata.
 - Do not add build-time scene mutation logic to this repo.
+- If a source-repo Quest build appears stuck around Android device discovery,
+  close stale headset runtime sessions first, especially older experiments that
+  may still hold `adb reverse` or similar transport state, and prefer the
+  source repo's Quest wrappers over ad hoc `adb` calls.
 
 ## Twin / Hotload Posture
 

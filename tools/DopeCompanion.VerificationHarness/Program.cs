@@ -203,6 +203,79 @@ public static class HarnessScenarioRunner
             TimeSpan.FromSeconds(20),
             $"Expected cast windows were not visible. Cast summary: {mainViewModel.LiveSessionCastSummary} Detail: {mainViewModel.LiveSessionCastDetail}");
 
+        await WaitForConditionAsync(
+            () => mainViewModel.HasLiveSessionCastFocusedLayerPreviewImage &&
+                  File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath),
+            TimeSpan.FromSeconds(20),
+            $"Focused layer preview did not render. {mainViewModel.LiveSessionCastFocusedLayerPreviewSummary} {mainViewModel.LiveSessionCastFocusedLayerPreviewDetail}");
+        await CopyFileWithSharedReadAsync(
+            mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+            Path.Combine(outputRoot, "focused-layer-preview-initial.png"));
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.SelectLiveSessionCastFocusLayerCommand,
+            "1",
+            "Select Raw Feed layer",
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastFocusLayerStatusState == LiveSessionSettingSidebarState.Verified &&
+                  mainViewModel.LiveSessionCastFocusLayerStatusLabel.Contains("Raw Feed", StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(20),
+            $"Raw Feed layer selection did not verify. {mainViewModel.LiveSessionCastFocusLayerStatusLabel} {mainViewModel.LiveSessionCastFocusLayerStatusDetail}");
+        await WaitForConditionAsync(
+            () => mainViewModel.HasLiveSessionCastFocusedLayerPreviewImage &&
+                  mainViewModel.LiveSessionCastFocusedLayerPreviewSummary.Contains("Raw Feed", StringComparison.OrdinalIgnoreCase) &&
+                  File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath),
+            TimeSpan.FromSeconds(20),
+            $"Focused layer preview did not switch to Raw Feed. {mainViewModel.LiveSessionCastFocusedLayerPreviewSummary} {mainViewModel.LiveSessionCastFocusedLayerPreviewDetail}");
+        await CopyFileWithSharedReadAsync(
+            mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+            Path.Combine(outputRoot, "focused-layer-preview-raw-feed.png"));
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.SelectLiveSessionCastFocusLayerCommand,
+            "0",
+            "Select Composite layer",
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastFocusLayerStatusState == LiveSessionSettingSidebarState.Verified &&
+                  mainViewModel.LiveSessionCastFocusLayerStatusLabel.Contains("Composite", StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(20),
+            $"Composite layer selection did not verify. {mainViewModel.LiveSessionCastFocusLayerStatusLabel} {mainViewModel.LiveSessionCastFocusLayerStatusDetail}");
+        await WaitForConditionAsync(
+            () => mainViewModel.HasLiveSessionCastFocusedLayerPreviewImage &&
+                  mainViewModel.LiveSessionCastFocusedLayerPreviewSummary.Contains("Composite", StringComparison.OrdinalIgnoreCase) &&
+                  File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath),
+            TimeSpan.FromSeconds(20),
+            $"Focused layer preview did not switch back to Composite. {mainViewModel.LiveSessionCastFocusedLayerPreviewSummary} {mainViewModel.LiveSessionCastFocusedLayerPreviewDetail}");
+        await CopyFileWithSharedReadAsync(
+            mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+            Path.Combine(outputRoot, "focused-layer-preview-composite.png"));
+
+        var initialAudioTriggerWasOn = mainViewModel.LiveSessionCastAudioTriggerStatusLabel.Contains("On", StringComparison.OrdinalIgnoreCase);
+        var firstAudioTriggerTargetLabel = initialAudioTriggerWasOn ? "Off" : "On";
+        var secondAudioTriggerTargetLabel = initialAudioTriggerWasOn ? "On" : "Off";
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.ToggleLiveSessionCastAudioTriggerCommand,
+            "Toggle cast audio trigger",
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastAudioTriggerStatusState == LiveSessionSettingSidebarState.Verified &&
+                  mainViewModel.LiveSessionCastAudioTriggerStatusLabel.Contains(firstAudioTriggerTargetLabel, StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(20),
+            $"Audio trigger did not switch to {firstAudioTriggerTargetLabel}. {mainViewModel.LiveSessionCastAudioTriggerStatusLabel} {mainViewModel.LiveSessionCastAudioTriggerStatusDetail}");
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.ToggleLiveSessionCastAudioTriggerCommand,
+            "Toggle cast audio trigger",
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastAudioTriggerStatusState == LiveSessionSettingSidebarState.Verified &&
+                  mainViewModel.LiveSessionCastAudioTriggerStatusLabel.Contains(secondAudioTriggerTargetLabel, StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(20),
+            $"Audio trigger did not switch to {secondAudioTriggerTargetLabel}. {mainViewModel.LiveSessionCastAudioTriggerStatusLabel} {mainViewModel.LiveSessionCastAudioTriggerStatusDetail}");
+
         if (!TryGetWindowBounds(castWindowTitle, out var castBoundsBefore))
         {
             throw new InvalidOperationException("Could not read the initial Display 0 cast bounds.");
@@ -237,6 +310,13 @@ public static class HarnessScenarioRunner
         {
             mainViewModel.LiveSessionCastSummary,
             mainViewModel.LiveSessionCastDetail,
+            mainViewModel.LiveSessionCastFocusLayerStatusLabel,
+            mainViewModel.LiveSessionCastFocusLayerStatusDetail,
+            mainViewModel.LiveSessionCastAudioTriggerStatusLabel,
+            mainViewModel.LiveSessionCastAudioTriggerStatusDetail,
+            mainViewModel.LiveSessionCastFocusedLayerPreviewSummary,
+            mainViewModel.LiveSessionCastFocusedLayerPreviewDetail,
+            FocusedLayerPreviewArtifactPath = mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
             CastWindowTitle = castWindowTitle,
             OverlayWindowTitle = overlayWindowTitle,
             CastBoundsBefore = castBoundsBefore,
@@ -1805,6 +1885,42 @@ public static class HarnessScenarioRunner
             () => command.CanExecute(null),
             timeout ?? TimeSpan.FromSeconds(20),
             $"GUI command '{label}' did not complete.");
+    }
+
+    private static async Task ExecuteStandaloneCommandAsync(
+        AsyncRelayCommand command,
+        object? parameter,
+        string label,
+        TimeSpan? timeout = null)
+    {
+        if (!command.CanExecute(parameter))
+        {
+            throw new InvalidOperationException($"Command '{label}' was not available for the harness.");
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => command.Execute(parameter));
+        await WaitForConditionAsync(
+            () => command.CanExecute(parameter),
+            timeout ?? TimeSpan.FromSeconds(20),
+            $"GUI command '{label}' did not complete.");
+    }
+
+    private static async Task CopyFileWithSharedReadAsync(string sourcePath, string destinationPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? throw new InvalidOperationException("Destination directory path was empty."));
+
+        using var source = new FileStream(
+            sourcePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var destination = new FileStream(
+            destinationPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None);
+        await source.CopyToAsync(destination);
+        await destination.FlushAsync();
     }
 
     private static async Task<ObservationResult> RunControllerBreathingProfilePhaseAsync(
