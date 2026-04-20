@@ -34,6 +34,12 @@ internal static class Program
 
 public static class HarnessScenarioRunner
 {
+    private const string CastOverlayScenarioDirectoryName = "dope-cast-overlay";
+    private const string CastWindowReliabilityScenarioDirectoryName = "dope-cast-window-reliability";
+    private const string StudyModeScenarioDirectoryName = "dope-study-mode-live";
+    private const string CastWindowTitle = "DOPE Companion Cast · Display 0";
+    private const string CastOverlayWindowTitle = "DOPE Companion Cast · Display 0 Controls";
+    private const string RenderViewWindowTitle = "DOPE Companion Render View";
     private static readonly TimeSpan MockHeartbeatInterval = TimeSpan.FromMilliseconds(910);
     private static readonly TimeSpan QuestScreenshotProofTimeout = TimeSpan.FromSeconds(15);
     private static readonly float[] ValidationCaptureLslSequence = [0.19f, 0.48f, 0.77f, 0.31f, 0.66f, 0.28f];
@@ -47,18 +53,39 @@ public static class HarnessScenarioRunner
     public static void RunOnceFromCurrentDirectory()
     {
         var repoRoot = Directory.GetCurrentDirectory();
-        var castOverlayOnly = ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_OVERLAY");
-        var outputRoot = Path.Combine(
+        var castWindowReliability = ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_WINDOWS");
+        var castOverlayOnly = !castWindowReliability && ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_OVERLAY");
+        var outputRoot = ResolveOutputRoot(
             repoRoot,
-            "artifacts",
-            "verify",
-            castOverlayOnly ? "dope-cast-overlay" : "dope-study-mode-live");
+            castWindowReliability
+                ? CastWindowReliabilityScenarioDirectoryName
+                : castOverlayOnly
+                    ? CastOverlayScenarioDirectoryName
+                    : StudyModeScenarioDirectoryName);
         Directory.CreateDirectory(outputRoot);
-        if (castOverlayOnly)
+        if (castWindowReliability)
+        {
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-window-reliability-error.txt"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-window-reliability-report.json"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-cast-window-reliability.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-live-session-window-cast-window-reliability.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-mirror-start.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-mirror-resized.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-render-start.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-render-restored.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-render-recentered.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-render-switch-back.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "focused-layer-preview-render-start.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "focused-layer-preview-render-switch-back.png"));
+        }
+        else if (castOverlayOnly)
         {
             DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-error.txt"));
             DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-report.json"));
             DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-cast-overlay.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "focused-layer-preview-pre-brightness.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "focused-layer-preview-raw-brightness.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "focused-layer-preview-blurred-brightness.png"));
         }
         else
         {
@@ -118,7 +145,11 @@ public static class HarnessScenarioRunner
                 window.Activate();
                 window.Topmost = true;
                 window.Topmost = false;
-                if (castOverlayOnly)
+                if (castWindowReliability)
+                {
+                    await ExecuteCastWindowReliabilityScenarioAsync(window, outputRoot);
+                }
+                else if (castOverlayOnly)
                 {
                     await ExecuteCastOverlayScenarioAsync(window, outputRoot);
                 }
@@ -129,7 +160,11 @@ public static class HarnessScenarioRunner
             }
             catch (Exception ex)
             {
-                var errorFileName = castOverlayOnly ? "dope-cast-overlay-error.txt" : "dope-study-mode-error.txt";
+                var errorFileName = castWindowReliability
+                    ? "dope-cast-window-reliability-error.txt"
+                    : castOverlayOnly
+                        ? "dope-cast-overlay-error.txt"
+                        : "dope-study-mode-error.txt";
                 await File.WriteAllTextAsync(Path.Combine(outputRoot, errorFileName), ex.ToString());
                 Environment.ExitCode = 1;
             }
@@ -147,9 +182,20 @@ public static class HarnessScenarioRunner
     public static void WriteFatalErrorFromCurrentDirectory(Exception ex)
     {
         var repoRoot = Directory.GetCurrentDirectory();
-        var outputRoot = Path.Combine(repoRoot, "artifacts", "verify", "dope-study-mode-live");
+        var outputRoot = ResolveOutputRoot(
+            repoRoot,
+            ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_WINDOWS")
+                ? CastWindowReliabilityScenarioDirectoryName
+                : ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_OVERLAY")
+                    ? CastOverlayScenarioDirectoryName
+                    : StudyModeScenarioDirectoryName);
         Directory.CreateDirectory(outputRoot);
-        File.WriteAllText(Path.Combine(outputRoot, "dope-study-mode-error.txt"), ex.ToString());
+        var errorFileName = ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_WINDOWS")
+            ? "dope-cast-window-reliability-error.txt"
+            : ReadBoolEnvironmentVariable("DOPE_VERIFY_CAST_OVERLAY")
+                ? "dope-cast-overlay-error.txt"
+                : "dope-study-mode-error.txt";
+        File.WriteAllText(Path.Combine(outputRoot, errorFileName), ex.ToString());
     }
 
     private static async Task ExecuteCastOverlayScenarioAsync(Window window, string outputRoot)
@@ -161,26 +207,7 @@ public static class HarnessScenarioRunner
 
         CaptureWindow(window, Path.Combine(outputRoot, "dope-main-window-cast-overlay.png"));
 
-        if (string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft))
-        {
-            await ExecuteStandaloneCommandAsync(
-                mainViewModel.DiscoverWifiCommand,
-                "Find Wi-Fi Quest",
-                TimeSpan.FromSeconds(45));
-        }
-
-        if (string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft))
-        {
-            await ExecuteStandaloneCommandAsync(
-                mainViewModel.ProbeUsbCommand,
-                "Probe USB",
-                TimeSpan.FromSeconds(45));
-        }
-
-        await ExecuteStandaloneCommandAsync(
-            mainViewModel.ConnectQuestCommand,
-            "Connect Quest",
-            TimeSpan.FromSeconds(30));
+        await EnsureQuestReadyForCastHarnessAsync(mainViewModel);
         await ExecuteStandaloneCommandAsync(
             mainViewModel.RefreshHeadsetStatusCommand,
             "Refresh Device Snapshot",
@@ -196,10 +223,8 @@ public static class HarnessScenarioRunner
             TimeSpan.FromSeconds(20),
             $"Display 0 cast did not enter the expected running state. {mainViewModel.LiveSessionCastSummary} {mainViewModel.LiveSessionCastDetail}");
 
-        const string castWindowTitle = "DOPE Companion Cast · Display 0";
-        const string overlayWindowTitle = "DOPE Companion Cast · Display 0 Controls";
         await WaitForConditionAsync(
-            () => TryGetWindowBounds(castWindowTitle, out _) && TryGetWindowBounds(overlayWindowTitle, out _),
+            () => TryGetWindowBounds(CastWindowTitle, out _) && TryGetWindowBounds(CastOverlayWindowTitle, out _),
             TimeSpan.FromSeconds(20),
             $"Expected cast windows were not visible. Cast summary: {mainViewModel.LiveSessionCastSummary} Detail: {mainViewModel.LiveSessionCastDetail}");
 
@@ -212,44 +237,30 @@ public static class HarnessScenarioRunner
             mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
             Path.Combine(outputRoot, "focused-layer-preview-initial.png"));
 
-        await ExecuteStandaloneCommandAsync(
-            mainViewModel.SelectLiveSessionCastFocusLayerCommand,
+        await CaptureFocusedLayerAsync(
+            mainViewModel,
             "1",
-            "Select Raw Feed layer",
-            TimeSpan.FromSeconds(45));
-        await WaitForConditionAsync(
-            () => mainViewModel.LiveSessionCastFocusLayerStatusState == LiveSessionSettingSidebarState.Verified &&
-                  mainViewModel.LiveSessionCastFocusLayerStatusLabel.Contains("Raw Feed", StringComparison.OrdinalIgnoreCase),
-            TimeSpan.FromSeconds(20),
-            $"Raw Feed layer selection did not verify. {mainViewModel.LiveSessionCastFocusLayerStatusLabel} {mainViewModel.LiveSessionCastFocusLayerStatusDetail}");
-        await WaitForConditionAsync(
-            () => mainViewModel.HasLiveSessionCastFocusedLayerPreviewImage &&
-                  mainViewModel.LiveSessionCastFocusedLayerPreviewSummary.Contains("Raw Feed", StringComparison.OrdinalIgnoreCase) &&
-                  File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath),
-            TimeSpan.FromSeconds(20),
-            $"Focused layer preview did not switch to Raw Feed. {mainViewModel.LiveSessionCastFocusedLayerPreviewSummary} {mainViewModel.LiveSessionCastFocusedLayerPreviewDetail}");
-        await CopyFileWithSharedReadAsync(
-            mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+            "Raw Feed",
             Path.Combine(outputRoot, "focused-layer-preview-raw-feed.png"));
-
-        await ExecuteStandaloneCommandAsync(
-            mainViewModel.SelectLiveSessionCastFocusLayerCommand,
+        await CaptureFocusedLayerAsync(
+            mainViewModel,
+            "2",
+            "Pre-Brightness",
+            Path.Combine(outputRoot, "focused-layer-preview-pre-brightness.png"));
+        await CaptureFocusedLayerAsync(
+            mainViewModel,
+            "3",
+            "Raw Brightness",
+            Path.Combine(outputRoot, "focused-layer-preview-raw-brightness.png"));
+        await CaptureFocusedLayerAsync(
+            mainViewModel,
+            "4",
+            "Blurred Brightness",
+            Path.Combine(outputRoot, "focused-layer-preview-blurred-brightness.png"));
+        await CaptureFocusedLayerAsync(
+            mainViewModel,
             "0",
-            "Select Composite layer",
-            TimeSpan.FromSeconds(45));
-        await WaitForConditionAsync(
-            () => mainViewModel.LiveSessionCastFocusLayerStatusState == LiveSessionSettingSidebarState.Verified &&
-                  mainViewModel.LiveSessionCastFocusLayerStatusLabel.Contains("Composite", StringComparison.OrdinalIgnoreCase),
-            TimeSpan.FromSeconds(20),
-            $"Composite layer selection did not verify. {mainViewModel.LiveSessionCastFocusLayerStatusLabel} {mainViewModel.LiveSessionCastFocusLayerStatusDetail}");
-        await WaitForConditionAsync(
-            () => mainViewModel.HasLiveSessionCastFocusedLayerPreviewImage &&
-                  mainViewModel.LiveSessionCastFocusedLayerPreviewSummary.Contains("Composite", StringComparison.OrdinalIgnoreCase) &&
-                  File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath),
-            TimeSpan.FromSeconds(20),
-            $"Focused layer preview did not switch back to Composite. {mainViewModel.LiveSessionCastFocusedLayerPreviewSummary} {mainViewModel.LiveSessionCastFocusedLayerPreviewDetail}");
-        await CopyFileWithSharedReadAsync(
-            mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+            "Composite",
             Path.Combine(outputRoot, "focused-layer-preview-composite.png"));
 
         var initialAudioTriggerWasOn = mainViewModel.LiveSessionCastAudioTriggerStatusLabel.Contains("On", StringComparison.OrdinalIgnoreCase);
@@ -276,12 +287,12 @@ public static class HarnessScenarioRunner
             TimeSpan.FromSeconds(20),
             $"Audio trigger did not switch to {secondAudioTriggerTargetLabel}. {mainViewModel.LiveSessionCastAudioTriggerStatusLabel} {mainViewModel.LiveSessionCastAudioTriggerStatusDetail}");
 
-        if (!TryGetWindowBounds(castWindowTitle, out var castBoundsBefore))
+        if (!TryGetWindowBounds(CastWindowTitle, out var castBoundsBefore))
         {
             throw new InvalidOperationException("Could not read the initial Display 0 cast bounds.");
         }
 
-        if (!TryGetWindowBounds(overlayWindowTitle, out var overlayBoundsBefore))
+        if (!TryGetWindowBounds(CastOverlayWindowTitle, out var overlayBoundsBefore))
         {
             throw new InvalidOperationException("Could not read the initial cast overlay bounds.");
         }
@@ -291,20 +302,20 @@ public static class HarnessScenarioRunner
             overlayBoundsBefore.Y,
             overlayBoundsBefore.Width + 180,
             overlayBoundsBefore.Height + 120);
-        if (!TryMoveWindow(overlayWindowTitle, movedOverlayBounds))
+        if (!TryMoveWindow(CastOverlayWindowTitle, movedOverlayBounds))
         {
             throw new InvalidOperationException("Could not resize the cast overlay window.");
         }
 
         await WaitForConditionAsync(
-            () => TryGetWindowBounds(castWindowTitle, out var castBoundsAfterResize) &&
+            () => TryGetWindowBounds(CastWindowTitle, out var castBoundsAfterResize) &&
                   castBoundsAfterResize.Width >= castBoundsBefore.Width + 150 &&
                   castBoundsAfterResize.Height >= castBoundsBefore.Height + 90,
             TimeSpan.FromSeconds(10),
             "Resizing the cast overlay did not propagate to the Display 0 cast window.");
 
-        TryGetWindowBounds(castWindowTitle, out var castBoundsAfter);
-        TryGetWindowBounds(overlayWindowTitle, out var overlayBoundsAfter);
+        TryGetWindowBounds(CastWindowTitle, out var castBoundsAfter);
+        TryGetWindowBounds(CastOverlayWindowTitle, out var overlayBoundsAfter);
 
         var report = new
         {
@@ -317,8 +328,8 @@ public static class HarnessScenarioRunner
             mainViewModel.LiveSessionCastFocusedLayerPreviewSummary,
             mainViewModel.LiveSessionCastFocusedLayerPreviewDetail,
             FocusedLayerPreviewArtifactPath = mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
-            CastWindowTitle = castWindowTitle,
-            OverlayWindowTitle = overlayWindowTitle,
+            CastWindowTitle,
+            OverlayWindowTitle = CastOverlayWindowTitle,
             CastBoundsBefore = castBoundsBefore,
             CastBoundsAfter = castBoundsAfter,
             OverlayBoundsBefore = overlayBoundsBefore,
@@ -334,6 +345,423 @@ public static class HarnessScenarioRunner
             await Application.Current.Dispatcher.InvokeAsync(() => mainViewModel.StopLiveSessionCastCommand.Execute(null));
             await Task.Delay(TimeSpan.FromSeconds(2));
         }
+    }
+
+    private static async Task ExecuteCastWindowReliabilityScenarioAsync(Window window, string outputRoot)
+    {
+        if (window.DataContext is not MainWindowViewModel mainViewModel)
+        {
+            throw new InvalidOperationException("Main window did not expose MainWindowViewModel as DataContext.");
+        }
+
+        await EnsureQuestReadyForCastHarnessAsync(mainViewModel);
+        CaptureWindow(window, Path.Combine(outputRoot, "dope-main-window-cast-window-reliability.png"));
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.OpenLiveSessionWindowCommand,
+            "Open Live Session",
+            TimeSpan.FromSeconds(20));
+        var liveSessionWindow = await WaitForWindowAsync<LiveSessionWindow>(
+            candidate => candidate.IsLoaded && candidate.IsVisible,
+            TimeSpan.FromSeconds(15),
+            "Live Session window did not open.");
+        CaptureWindow(liveSessionWindow, Path.Combine(outputRoot, "dope-live-session-window-cast-window-reliability.png"));
+
+        var phases = new List<CastWindowReliabilityPhaseReport>();
+        var baselineForeground = CaptureForegroundWindow();
+
+        await EnsureCastSurfaceModeAsync(mainViewModel, "mirror");
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.StartLiveSessionCastCommand,
+            mainViewModel.LiveSessionCastStartActionLabel,
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastLevel == OperationOutcomeKind.Success &&
+                  TryGetWindowBounds(CastWindowTitle, out _) &&
+                  TryGetWindowBounds(CastOverlayWindowTitle, out _),
+            TimeSpan.FromSeconds(20),
+            $"Mirror cast did not open correctly. {mainViewModel.LiveSessionCastSummary} {mainViewModel.LiveSessionCastDetail}");
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, CastWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(15),
+            $"Mirror cast window did not take foreground. Foreground was `{CaptureForegroundWindow().Title}`.");
+
+        var mirrorOverlayWindow = await WaitForWindowAsync(
+            candidate => string.Equals(candidate.Title, CastOverlayWindowTitle, StringComparison.Ordinal) &&
+                         candidate.IsLoaded &&
+                         candidate.IsVisible,
+            TimeSpan.FromSeconds(10),
+            "Mirror cast overlay window did not appear.");
+        CaptureWindow(mirrorOverlayWindow, Path.Combine(outputRoot, "dope-cast-overlay-mirror-start.png"));
+        TryGetWindowBounds(CastWindowTitle, out var mirrorCastBounds);
+        TryGetWindowBounds(CastOverlayWindowTitle, out var mirrorOverlayBounds);
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "mirror-start",
+            "Display Mirror",
+            CaptureForegroundWindow(),
+            CastWindowTitle,
+            CastOverlayWindowTitle,
+            mirrorCastBounds,
+            mirrorOverlayBounds,
+            [
+                Path.Combine(outputRoot, "dope-main-window-cast-window-reliability.png"),
+                Path.Combine(outputRoot, "dope-live-session-window-cast-window-reliability.png"),
+                Path.Combine(outputRoot, "dope-cast-overlay-mirror-start.png")
+            ]));
+
+        var resizedOverlayBounds = new NativeWindowBounds(
+            mirrorOverlayBounds.X,
+            mirrorOverlayBounds.Y,
+            mirrorOverlayBounds.Width + 220,
+            mirrorOverlayBounds.Height + 140);
+        if (!TryMoveWindow(CastOverlayWindowTitle, resizedOverlayBounds))
+        {
+            throw new InvalidOperationException("Could not resize the mirror cast overlay window during reliability verification.");
+        }
+
+        await WaitForConditionAsync(
+            () => TryGetWindowBounds(CastOverlayWindowTitle, out var resizedBounds) &&
+                  resizedBounds.Width >= resizedOverlayBounds.Width - 6 &&
+                  resizedBounds.Height >= resizedOverlayBounds.Height - 6,
+            TimeSpan.FromSeconds(10),
+            "Mirror cast overlay window did not keep the requested resized bounds.");
+        await WaitForConditionAsync(
+            () => TryGetWindowBounds(CastWindowTitle, out var resizedCastBounds) &&
+                  resizedCastBounds.Width >= mirrorCastBounds.Width + 180 &&
+                  resizedCastBounds.Height >= mirrorCastBounds.Height + 100,
+            TimeSpan.FromSeconds(10),
+            "Mirror cast window did not follow the resized overlay bounds.");
+        TryGetWindowBounds(CastWindowTitle, out var mirrorCastBoundsAfterResize);
+        TryGetWindowBounds(CastOverlayWindowTitle, out var mirrorOverlayBoundsAfterResize);
+        CaptureWindow(mirrorOverlayWindow, Path.Combine(outputRoot, "dope-cast-overlay-mirror-resized.png"));
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "mirror-resized",
+            "Display Mirror",
+            CaptureForegroundWindow(),
+            CastWindowTitle,
+            CastOverlayWindowTitle,
+            mirrorCastBoundsAfterResize,
+            mirrorOverlayBoundsAfterResize,
+            [Path.Combine(outputRoot, "dope-cast-overlay-mirror-resized.png")]));
+
+        if (!mainViewModel.StopLiveSessionCastCommand.CanExecute(null))
+        {
+            throw new InvalidOperationException("Stop Cast was not available while verifying mirror-stop reliability.");
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => mainViewModel.StopLiveSessionCastCommand.Execute(null));
+        await WaitForConditionAsync(
+            () => !TryGetWindowBounds(CastWindowTitle, out _) &&
+                  !TryGetWindowBounds(CastOverlayWindowTitle, out _),
+            TimeSpan.FromSeconds(15),
+            "Mirror cast windows were still visible after stop.");
+        await ActivateWindowAsync(liveSessionWindow);
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, liveSessionWindow.Title, StringComparison.Ordinal) ||
+                     string.Equals(title, window.Title, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(15),
+            $"Companion window could not be reactivated after stopping mirror mode. Foreground was `{CaptureForegroundWindow().Title}`.");
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "mirror-stopped",
+            "Display Mirror",
+            CaptureForegroundWindow(),
+            CastWindowTitle,
+            CastOverlayWindowTitle,
+            null,
+            null,
+            Array.Empty<string>()));
+
+        await EnsureCastSurfaceModeAsync(mainViewModel, "render-view");
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.StartLiveSessionCastCommand,
+            mainViewModel.LiveSessionCastStartActionLabel,
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastSummary.Contains("Render View", StringComparison.OrdinalIgnoreCase) &&
+                  TryGetWindowBounds(RenderViewWindowTitle, out _),
+            TimeSpan.FromSeconds(20),
+            $"Render View did not open correctly. {mainViewModel.LiveSessionCastSummary} {mainViewModel.LiveSessionCastDetail}");
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, RenderViewWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(15),
+            $"Render View did not take foreground after start. Foreground was `{CaptureForegroundWindow().Title}`.");
+
+        var renderViewWindow = await WaitForWindowAsync(
+            candidate => string.Equals(candidate.Title, RenderViewWindowTitle, StringComparison.Ordinal) &&
+                         candidate.IsLoaded &&
+                         candidate.IsVisible,
+            TimeSpan.FromSeconds(10),
+            "Render View window did not appear.");
+        CaptureWindow(renderViewWindow, Path.Combine(outputRoot, "dope-cast-overlay-render-start.png"));
+        if (!string.IsNullOrWhiteSpace(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath) &&
+            File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath))
+        {
+            await CopyFileWithSharedReadAsync(
+                mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+                Path.Combine(outputRoot, "focused-layer-preview-render-start.png"));
+        }
+
+        TryGetWindowBounds(RenderViewWindowTitle, out var renderViewBounds);
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "render-start",
+            "Render View",
+            CaptureForegroundWindow(),
+            null,
+            RenderViewWindowTitle,
+            null,
+            renderViewBounds,
+            new[]
+            {
+                Path.Combine(outputRoot, "dope-cast-overlay-render-start.png"),
+                Path.Combine(outputRoot, "focused-layer-preview-render-start.png")
+            }.Where(File.Exists).ToArray()));
+
+        await Application.Current.Dispatcher.InvokeAsync(() => renderViewWindow.WindowState = WindowState.Minimized);
+        await WaitForConditionAsync(
+            () => renderViewWindow.WindowState == WindowState.Minimized,
+            TimeSpan.FromSeconds(5),
+            "Render View window did not minimize during reliability verification.");
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.StartLiveSessionCastCommand,
+            mainViewModel.LiveSessionCastStartActionLabel,
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => renderViewWindow.WindowState == WindowState.Normal &&
+                  TryGetWindowBounds(RenderViewWindowTitle, out _),
+            TimeSpan.FromSeconds(15),
+            "Start Render View did not restore the minimized Render View window.");
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, RenderViewWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(10),
+            $"Start Render View did not bring the restored Render View window to the foreground. Foreground was `{CaptureForegroundWindow().Title}`.");
+        CaptureWindow(renderViewWindow, Path.Combine(outputRoot, "dope-cast-overlay-render-restored.png"));
+        TryGetWindowBounds(RenderViewWindowTitle, out var renderViewBoundsAfterRestore);
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "render-restored",
+            "Render View",
+            CaptureForegroundWindow(),
+            null,
+            RenderViewWindowTitle,
+            null,
+            renderViewBoundsAfterRestore,
+            [Path.Combine(outputRoot, "dope-cast-overlay-render-restored.png")]));
+
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            renderViewWindow.Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2400;
+            renderViewWindow.Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 1600;
+        });
+        await Task.Delay(TimeSpan.FromMilliseconds(350));
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.StartLiveSessionCastCommand,
+            mainViewModel.LiveSessionCastStartActionLabel,
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => TryGetWindowBounds(RenderViewWindowTitle, out var recenteredBounds) &&
+                  IntersectsVirtualDesktop(recenteredBounds),
+            TimeSpan.FromSeconds(15),
+            "Start Render View did not recenter an off-screen Render View window.");
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, RenderViewWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(10),
+            $"Start Render View did not bring the recentered Render View window to the foreground. Foreground was `{CaptureForegroundWindow().Title}`.");
+        CaptureWindow(renderViewWindow, Path.Combine(outputRoot, "dope-cast-overlay-render-recentered.png"));
+        TryGetWindowBounds(RenderViewWindowTitle, out var renderViewBoundsAfterRecenter);
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "render-recentered",
+            "Render View",
+            CaptureForegroundWindow(),
+            null,
+            RenderViewWindowTitle,
+            null,
+            renderViewBoundsAfterRecenter,
+            [Path.Combine(outputRoot, "dope-cast-overlay-render-recentered.png")]));
+
+        await ActivateWindowAsync(liveSessionWindow);
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, liveSessionWindow.Title, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(10),
+            $"Live Session window could not retake foreground while Render View was open. Foreground was `{CaptureForegroundWindow().Title}`.");
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "render-live-session-foreground",
+            "Render View",
+            CaptureForegroundWindow(),
+            null,
+            RenderViewWindowTitle,
+            null,
+            renderViewBounds,
+            Array.Empty<string>()));
+
+        await ActivateWindowAsync(window);
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, window.Title, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(10),
+            $"Main window could not retake foreground while Render View was open. Foreground was `{CaptureForegroundWindow().Title}`.");
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "render-main-window-foreground",
+            "Render View",
+            CaptureForegroundWindow(),
+            null,
+            RenderViewWindowTitle,
+            null,
+            renderViewBounds,
+            Array.Empty<string>()));
+
+        await ActivateWindowAsync(renderViewWindow);
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, RenderViewWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(10),
+            $"Render View could not retake foreground after companion activation. Foreground was `{CaptureForegroundWindow().Title}`.");
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.SelectLiveSessionCastSurfaceModeCommand,
+            "mirror",
+            "Switch main view to Display Mirror",
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => TryGetWindowBounds(CastWindowTitle, out _) &&
+                  TryGetWindowBounds(CastOverlayWindowTitle, out _) &&
+                  !TryGetWindowBounds(RenderViewWindowTitle, out _),
+            TimeSpan.FromSeconds(20),
+            "Switching from Render View back to Display Mirror did not recreate the expected windows.");
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, CastWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(15),
+            $"Mirror cast did not retake foreground after switching back from Render View. Foreground was `{CaptureForegroundWindow().Title}`.");
+        TryGetWindowBounds(CastOverlayWindowTitle, out var mirrorSwitchBackOverlayBounds);
+        AssertBoundsPreserved(
+            renderViewBounds,
+            mirrorSwitchBackOverlayBounds,
+            30,
+            "Switching from Render View back to Display Mirror did not preserve the prior window size.");
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "mirror-switch-back",
+            "Display Mirror",
+            CaptureForegroundWindow(),
+            CastWindowTitle,
+            CastOverlayWindowTitle,
+            TryGetWindowBounds(CastWindowTitle, out var castSwitchBackBounds) ? castSwitchBackBounds : null,
+            mirrorSwitchBackOverlayBounds,
+            Array.Empty<string>()));
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.SelectLiveSessionCastSurfaceModeCommand,
+            "render-view",
+            "Switch main view to Render View",
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => TryGetWindowBounds(RenderViewWindowTitle, out _) &&
+                  !TryGetWindowBounds(CastWindowTitle, out _),
+            TimeSpan.FromSeconds(20),
+            "Switching from Display Mirror back to Render View did not restore the Render View window.");
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, RenderViewWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(15),
+            $"Render View did not retake foreground after switching back from Display Mirror. Foreground was `{CaptureForegroundWindow().Title}`.");
+        var renderViewSwitchBackWindow = await WaitForWindowAsync(
+            candidate => string.Equals(candidate.Title, RenderViewWindowTitle, StringComparison.Ordinal) &&
+                         candidate.IsLoaded &&
+                         candidate.IsVisible,
+            TimeSpan.FromSeconds(10),
+            "Render View window did not reappear after switching back.");
+        CaptureWindow(renderViewSwitchBackWindow, Path.Combine(outputRoot, "dope-cast-overlay-render-switch-back.png"));
+        if (!string.IsNullOrWhiteSpace(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath) &&
+            File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath))
+        {
+            await CopyFileWithSharedReadAsync(
+                mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+                Path.Combine(outputRoot, "focused-layer-preview-render-switch-back.png"));
+        }
+
+        TryGetWindowBounds(RenderViewWindowTitle, out var renderViewBoundsAfterSwitchBack);
+        AssertBoundsPreserved(
+            mirrorSwitchBackOverlayBounds,
+            renderViewBoundsAfterSwitchBack,
+            30,
+            "Switching from Display Mirror back to Render View did not preserve the prior window size.");
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "render-switch-back",
+            "Render View",
+            CaptureForegroundWindow(),
+            null,
+            RenderViewWindowTitle,
+            null,
+            renderViewBoundsAfterSwitchBack,
+            new[]
+            {
+                Path.Combine(outputRoot, "dope-cast-overlay-render-switch-back.png"),
+                Path.Combine(outputRoot, "focused-layer-preview-render-switch-back.png")
+            }.Where(File.Exists).ToArray()));
+
+        if (!mainViewModel.StopLiveSessionCastCommand.CanExecute(null))
+        {
+            throw new InvalidOperationException("Stop Cast was not available while verifying Render View stop reliability.");
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => mainViewModel.StopLiveSessionCastCommand.Execute(null));
+        await WaitForConditionAsync(
+            () => !TryGetWindowBounds(RenderViewWindowTitle, out _) &&
+                  !TryGetWindowBounds(CastWindowTitle, out _) &&
+                  !TryGetWindowBounds(CastOverlayWindowTitle, out _),
+            TimeSpan.FromSeconds(15),
+            "Cast windows were still visible after stopping Render View.");
+        await ActivateWindowAsync(liveSessionWindow);
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, liveSessionWindow.Title, StringComparison.Ordinal) ||
+                     string.Equals(title, window.Title, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(15),
+            $"Companion window could not be reactivated after stopping Render View. Foreground was `{CaptureForegroundWindow().Title}`.");
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "render-stopped",
+            "Render View",
+            CaptureForegroundWindow(),
+            null,
+            RenderViewWindowTitle,
+            null,
+            null,
+            Array.Empty<string>()));
+
+        var report = new CastWindowReliabilityReport(
+            DeviceSelector: string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft) ? null : mainViewModel.EndpointDraft,
+            MainWindowTitle: window.Title,
+            LiveSessionWindowTitle: liveSessionWindow.Title,
+            InitialForegroundWindow: baselineForeground,
+            FinalForegroundWindow: CaptureForegroundWindow(),
+            LiveSessionCastSummary: mainViewModel.LiveSessionCastSummary,
+            LiveSessionCastDetail: mainViewModel.LiveSessionCastDetail,
+            LiveSessionCastFocusedLayerPreviewSummary: mainViewModel.LiveSessionCastFocusedLayerPreviewSummary,
+            LiveSessionCastFocusedLayerPreviewDetail: mainViewModel.LiveSessionCastFocusedLayerPreviewDetail,
+            Phases: phases);
+        await File.WriteAllTextAsync(
+            Path.Combine(outputRoot, "dope-cast-window-reliability-report.json"),
+            JsonSerializer.Serialize(report, ManifestJsonOptions));
+    }
+
+    private static async Task CaptureFocusedLayerAsync(
+        MainWindowViewModel mainViewModel,
+        string layerValue,
+        string expectedLayerLabel,
+        string outputPath)
+    {
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.SelectLiveSessionCastFocusLayerCommand,
+            layerValue,
+            $"Select {expectedLayerLabel} layer",
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastFocusLayerStatusState == LiveSessionSettingSidebarState.Verified &&
+                  mainViewModel.LiveSessionCastFocusLayerStatusLabel.Contains(expectedLayerLabel, StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(20),
+            $"{expectedLayerLabel} layer selection did not verify. {mainViewModel.LiveSessionCastFocusLayerStatusLabel} {mainViewModel.LiveSessionCastFocusLayerStatusDetail}");
+        await WaitForConditionAsync(
+            () => mainViewModel.HasLiveSessionCastFocusedLayerPreviewImage &&
+                  mainViewModel.LiveSessionCastFocusedLayerPreviewSummary.Contains(expectedLayerLabel, StringComparison.OrdinalIgnoreCase) &&
+                  File.Exists(mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath),
+            TimeSpan.FromSeconds(20),
+            $"Focused layer preview did not switch to {expectedLayerLabel}. {mainViewModel.LiveSessionCastFocusedLayerPreviewSummary} {mainViewModel.LiveSessionCastFocusedLayerPreviewDetail}");
+        await CopyFileWithSharedReadAsync(
+            mainViewModel.LiveSessionCastFocusedLayerPreviewArtifactPath,
+            outputPath);
     }
 
     private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, FloatLslTestOutlet outlet)
@@ -815,6 +1243,197 @@ public static class HarnessScenarioRunner
         }
 
         throw new TimeoutException(error);
+    }
+
+    private static async Task EnsureQuestReadyForCastHarnessAsync(MainWindowViewModel mainViewModel)
+    {
+        ApplyHarnessDeviceSelectorOverride(mainViewModel);
+
+        if (string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft))
+        {
+            await ExecuteStandaloneCommandAsync(
+                mainViewModel.DiscoverWifiCommand,
+                "Find Wi-Fi Quest",
+                TimeSpan.FromSeconds(45));
+        }
+
+        if (string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft))
+        {
+            await ExecuteStandaloneCommandAsync(
+                mainViewModel.ProbeUsbCommand,
+                "Probe USB",
+                TimeSpan.FromSeconds(45));
+        }
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.ConnectQuestCommand,
+            "Connect Quest",
+            TimeSpan.FromSeconds(30));
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.RefreshHeadsetStatusCommand,
+            "Refresh Device Snapshot",
+            TimeSpan.FromSeconds(30));
+    }
+
+    private static void ApplyHarnessDeviceSelectorOverride(MainWindowViewModel mainViewModel)
+    {
+        var selector = Environment.GetEnvironmentVariable("DOPE_VERIFY_DEVICE");
+        if (!string.IsNullOrWhiteSpace(selector))
+        {
+            mainViewModel.EndpointDraft = selector.Trim();
+        }
+    }
+
+    private static async Task EnsureCastSurfaceModeAsync(MainWindowViewModel mainViewModel, string value)
+    {
+        var expectedRenderView = string.Equals(value, "render-view", StringComparison.OrdinalIgnoreCase);
+        if (mainViewModel.IsLiveSessionCastRenderViewMode == expectedRenderView)
+        {
+            return;
+        }
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.SelectLiveSessionCastSurfaceModeCommand,
+            value,
+            $"Set cast main view to {(expectedRenderView ? "Render View" : "Display Mirror")}",
+            TimeSpan.FromSeconds(30));
+        await WaitForConditionAsync(
+            () => mainViewModel.IsLiveSessionCastRenderViewMode == expectedRenderView,
+            TimeSpan.FromSeconds(10),
+            $"Cast main view never switched to `{value}`.");
+    }
+
+    private static async Task<TWindow> WaitForWindowAsync<TWindow>(
+        Func<TWindow, bool> predicate,
+        TimeSpan timeout,
+        string error)
+        where TWindow : Window
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var candidate = await Application.Current.Dispatcher.InvokeAsync(() =>
+                Application.Current.Windows
+                    .OfType<TWindow>()
+                    .FirstOrDefault(predicate));
+            if (candidate is not null)
+            {
+                return candidate;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(150));
+        }
+
+        throw new TimeoutException(error);
+    }
+
+    private static async Task<Window> WaitForWindowAsync(
+        Func<Window, bool> predicate,
+        TimeSpan timeout,
+        string error)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var candidate = await Application.Current.Dispatcher.InvokeAsync(() =>
+                Application.Current.Windows
+                    .OfType<Window>()
+                    .FirstOrDefault(predicate));
+            if (candidate is not null)
+            {
+                return candidate;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(150));
+        }
+
+        throw new TimeoutException(error);
+    }
+
+    private static async Task ActivateWindowAsync(Window window)
+    {
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (window.WindowState == WindowState.Minimized)
+            {
+                window.WindowState = WindowState.Normal;
+            }
+
+            window.Activate();
+            window.Focus();
+        });
+    }
+
+    private static async Task WaitForForegroundWindowAsync(
+        Func<string, bool> predicate,
+        TimeSpan timeout,
+        string error)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var foreground = CaptureForegroundWindow();
+            if (predicate(foreground.Title))
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(150));
+        }
+
+        throw new TimeoutException(error);
+    }
+
+    private static ForegroundWindowSnapshot CaptureForegroundWindow()
+    {
+        var handle = NativeMethods.GetForegroundWindow();
+        return new ForegroundWindowSnapshot(handle.ToInt64(), ReadWindowTitle(handle));
+    }
+
+    private static string ReadWindowTitle(nint windowHandle)
+    {
+        if (windowHandle == 0)
+        {
+            return string.Empty;
+        }
+
+        var length = NativeMethods.GetWindowTextLength(windowHandle);
+        if (length <= 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(length + 1);
+        _ = NativeMethods.GetWindowText(windowHandle, builder, builder.Capacity);
+        return builder.ToString();
+    }
+
+    private static void AssertBoundsPreserved(
+        NativeWindowBounds expected,
+        NativeWindowBounds actual,
+        int tolerance,
+        string error)
+    {
+        if (Math.Abs(expected.Width - actual.Width) > tolerance ||
+            Math.Abs(expected.Height - actual.Height) > tolerance)
+        {
+            throw new InvalidOperationException(
+                $"{error} Expected approximately {expected.Width}x{expected.Height}, but got {actual.Width}x{actual.Height}.");
+        }
+    }
+
+    private static bool IntersectsVirtualDesktop(NativeWindowBounds bounds)
+    {
+        var virtualLeft = SystemParameters.VirtualScreenLeft;
+        var virtualTop = SystemParameters.VirtualScreenTop;
+        var virtualRight = virtualLeft + SystemParameters.VirtualScreenWidth;
+        var virtualBottom = virtualTop + SystemParameters.VirtualScreenHeight;
+        var right = bounds.X + bounds.Width;
+        var bottom = bounds.Y + bounds.Height;
+        return right > virtualLeft &&
+               bounds.X < virtualRight &&
+               bottom > virtualTop &&
+               bounds.Y < virtualBottom;
     }
 
     private static async Task<string> CaptureQuestScreenshotProofAsync(
@@ -2913,11 +3532,45 @@ public static class HarnessScenarioRunner
         => string.Equals(Environment.GetEnvironmentVariable(variableName), "1", StringComparison.OrdinalIgnoreCase)
            || string.Equals(Environment.GetEnvironmentVariable(variableName), "true", StringComparison.OrdinalIgnoreCase);
 
+    private static string ResolveOutputRoot(string repoRoot, string defaultDirectoryName)
+    {
+        var overridePath = Environment.GetEnvironmentVariable("DOPE_VERIFY_OUTPUT_ROOT");
+        return string.IsNullOrWhiteSpace(overridePath)
+            ? Path.Combine(repoRoot, "artifacts", "verify", defaultDirectoryName)
+            : Path.GetFullPath(overridePath);
+    }
+
     private sealed record NativeWindowBounds(
         int X,
         int Y,
         int Width,
         int Height);
+
+    private sealed record ForegroundWindowSnapshot(
+        long Handle,
+        string Title);
+
+    private sealed record CastWindowReliabilityPhaseReport(
+        string Phase,
+        string MainSurfaceMode,
+        ForegroundWindowSnapshot ForegroundWindow,
+        string? CastWindowTitle,
+        string OverlayWindowTitle,
+        NativeWindowBounds? CastBounds,
+        NativeWindowBounds? OverlayBounds,
+        IReadOnlyList<string> ScreenshotPaths);
+
+    private sealed record CastWindowReliabilityReport(
+        string? DeviceSelector,
+        string MainWindowTitle,
+        string LiveSessionWindowTitle,
+        ForegroundWindowSnapshot InitialForegroundWindow,
+        ForegroundWindowSnapshot FinalForegroundWindow,
+        string LiveSessionCastSummary,
+        string LiveSessionCastDetail,
+        string LiveSessionCastFocusedLayerPreviewSummary,
+        string LiveSessionCastFocusedLayerPreviewDetail,
+        IReadOnlyList<CastWindowReliabilityPhaseReport> Phases);
 
     private static class NativeMethods
     {
@@ -2934,8 +3587,17 @@ public static class HarnessScenarioRunner
         internal static extern nint FindWindow(string? className, string? windowName);
 
         [DllImport("user32.dll")]
+        internal static extern nint GetForegroundWindow();
+
+        [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool GetWindowRect(nint windowHandle, out RECT rect);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetWindowText(nint windowHandle, StringBuilder text, int count);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetWindowTextLength(nint windowHandle);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

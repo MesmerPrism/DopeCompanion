@@ -173,6 +173,24 @@
                 </MultiDataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
+
+        <DataTemplate DataType="{x:Type viewModels:LiveSessionCastSurfaceModeOptionViewModel}">
+            <Button x:Name="SurfaceModeButton"
+                    Content="{Binding Label}"
+                    ToolTip="{Binding Description}"
+                    Command="{Binding DataContext.SelectLiveSessionCastSurfaceModeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding Value}"
+                    Style="{StaticResource OverlayFocusLayerButtonStyle}"
+                    PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown" />
+
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter TargetName="SurfaceModeButton" Property="Background" Value="{StaticResource FocusBlueBrush}" />
+                    <Setter TargetName="SurfaceModeButton" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                    <Setter TargetName="SurfaceModeButton" Property="FontWeight" Value="Bold" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid x:Name="RootChrome"
@@ -278,10 +296,11 @@
 
                     <StackPanel Grid.Row="0"
                                 Grid.Column="0">
-                        <TextBlock Text="Display 0 cast"
+                        <TextBlock Text="{Binding LiveSessionCastSurfaceModeLabel}"
                                    FontSize="22"
                                    FontWeight="Bold" />
                         <TextBlock x:Name="CaptureSourceText"
+                                   Text="{Binding LiveSessionCastSourceLabel}"
                                    Margin="0,4,0,0"
                                    Style="{StaticResource OverlayCaptionStyle}" />
                     </StackPanel>
@@ -323,12 +342,36 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="12" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="18" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0"
+                                    Margin="0,0,8,0">
+                            <TextBlock Text="Main view"
+                                       Style="{StaticResource OverlayCaptionStyle}" />
+                            <TextBlock Text="{Binding LiveSessionCastSurfaceModeLabel}"
+                                       Margin="0,2,0,0"
+                                       FontSize="13"
+                                       FontWeight="Bold"
+                                       ToolTip="{Binding LiveSessionCastSurfaceModeDetail}" />
+                        </StackPanel>
+
+                        <ItemsControl Grid.Column="2"
+                                      ItemsSource="{Binding LiveSessionCastSurfaceOptions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+
+                        <StackPanel Grid.Column="4"
                                     Margin="0,0,8,0">
                             <TextBlock Text="Layer focus"
                                        Style="{StaticResource OverlayCaptionStyle}" />
@@ -356,7 +399,7 @@
                             </TextBlock>
                         </StackPanel>
 
-                        <ItemsControl Grid.Column="2"
+                        <ItemsControl Grid.Column="6"
                                       ItemsSource="{Binding LiveSessionCastFocusLayerOptions}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -365,7 +408,7 @@
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
 
-                        <StackPanel Grid.Column="4"
+                        <StackPanel Grid.Column="8"
                                     MinWidth="154">
                             <TextBlock Text="Audio trigger"
                                        Style="{StaticResource OverlayCaptionStyle}" />
@@ -428,12 +471,61 @@
             <Border x:Name="VideoViewportSlot"
                     Grid.Row="2"
                     Grid.Column="0"
-                    Background="Transparent"
                     BorderBrush="{StaticResource LineBrush}"
                     BorderThickness="1"
                     CornerRadius="8"
-                    IsHitTestVisible="False"
-                    SnapsToDevicePixels="True" />
+                    SnapsToDevicePixels="True">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsLiveSessionCastRenderViewMode}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <Image Source="{Binding LiveSessionCastFocusedLayerPreviewImage}"
+                           Stretch="Uniform"
+                           SnapsToDevicePixels="True">
+                        <Image.Style>
+                            <Style TargetType="Image">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsLiveSessionCastRenderViewMode}" Value="True" />
+                                            <Condition Binding="{Binding HasLiveSessionCastFocusedLayerPreviewImage}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Image.Style>
+                    </Image>
+
+                    <TextBlock Text="Waiting for the next direct Quest Render View frame."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource OverlayCaptionStyle}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsLiveSessionCastRenderViewMode}" Value="True" />
+                                            <Condition Binding="{Binding HasLiveSessionCastFocusedLayerPreviewImage}" Value="False" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </Border>
 
             <Border x:Name="SidebarChrome"
                     Grid.Row="2"
@@ -453,7 +545,17 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0">
-                        <TextBlock Text="Focused layer preview"
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowLiveSessionCastSidebarRenderView}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Render View"
                                    FontSize="18"
                                    FontWeight="Bold" />
                         <TextBlock Text="{Binding LiveSessionCastFocusedLayerPreviewSummary}"
@@ -491,6 +593,16 @@
                             BorderThickness="1"
                             CornerRadius="6"
                             ToolTip="{Binding LiveSessionCastFocusedLayerPreviewArtifactPath}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowLiveSessionCastSidebarRenderView}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <Grid>
                             <Image Source="{Binding LiveSessionCastFocusedLayerPreviewImage}"
                                    Stretch="Uniform"
@@ -507,7 +619,7 @@
                                 </Image.Style>
                             </Image>
 
-                            <TextBlock Text="Waiting for the next direct Quest layer frame."
+                            <TextBlock Text="Waiting for the next direct Quest Render View frame."
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        TextAlignment="Center">

@@ -47,8 +47,10 @@ public sealed class FocusedLayerPreviewServiceTests
             Assert.Equal(0, service.LatestLayerMode);
             Assert.Equal(OperationOutcomeKind.Success, service.Level);
             Assert.Contains("Composite", service.Summary, StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(service.LatestImageBytes);
             Assert.True(File.Exists(artifactPath));
-            Assert.Equal(payload, await File.ReadAllBytesAsync(artifactPath));
+            var artifactBytes = await File.ReadAllBytesAsync(artifactPath);
+            Assert.Equal(artifactBytes, service.LatestImageBytes);
         }
         finally
         {

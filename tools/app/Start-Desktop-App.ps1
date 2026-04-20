@@ -61,6 +61,34 @@ function Try-StartInstalledPackage {
         [switch]$Wait
     )
 
+    $existingPackagedProcess = Get-Process -Name 'DopeCompanion' -ErrorAction SilentlyContinue |
+        Where-Object {
+            try {
+                -not [string]::IsNullOrWhiteSpace($_.Path) -and
+                -not [string]::IsNullOrWhiteSpace($Package.InstallLocation) -and
+                $_.Path.StartsWith($Package.InstallLocation, [StringComparison]::OrdinalIgnoreCase)
+            }
+            catch {
+                $false
+            }
+        } |
+        Select-Object -First 1
+
+    if ($null -ne $existingPackagedProcess) {
+        if ($Wait) {
+            Wait-Process -Id $existingPackagedProcess.Id
+        }
+
+        return [PSCustomObject]@{
+            LaunchMode        = 'PackagedApp'
+            PackageFamilyName = $Package.PackageFamilyName
+            PackageVersion    = $Package.Version.ToString()
+            LaunchTarget      = "shell:AppsFolder\$($Package.PackageFamilyName)!App"
+            ReusedProcess     = $true
+            ProcessId         = $existingPackagedProcess.Id
+        }
+    }
+
     $existingProcessIds = @(Get-Process -Name 'DopeCompanion' -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty Id)
     $launchTarget = "shell:AppsFolder\$($Package.PackageFamilyName)!App"

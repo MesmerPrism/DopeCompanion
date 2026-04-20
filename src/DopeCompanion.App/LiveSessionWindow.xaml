@@ -121,6 +121,30 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
+
+        <DataTemplate DataType="{x:Type viewModels:LiveSessionCastSurfaceModeOptionViewModel}">
+            <Button Content="{Binding Label}"
+                    ToolTip="{Binding Description}"
+                    Command="{Binding DataContext.SelectLiveSessionCastSurfaceModeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding Value}"
+                    Padding="12,7"
+                    Margin="0,0,8,8">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                        <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource FocusBlueBrush}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                                <Setter Property="FontWeight" Value="Bold" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid Margin="20">
@@ -302,12 +326,32 @@
                             <Border Style="{StaticResource InsetPanelStyle}"
                                     Margin="0,12,0,0">
                                 <StackPanel>
-                                    <TextBlock Text="Capture source"
+                                    <TextBlock Text="Main view"
                                                Style="{StaticResource LiveMicroLabelStyle}" />
+                                    <TextBlock Text="{Binding LiveSessionCastSurfaceModeLabel}"
+                                               Style="{StaticResource LiveCodeStyle}"
+                                               FontWeight="Bold"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding LiveSessionCastSurfaceModeDetail}"
+                                               Style="{StaticResource SectionCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap" />
+                                    <ItemsControl ItemsSource="{Binding LiveSessionCastSurfaceOptions}"
+                                                  Margin="0,10,0,0">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+
+                                    <TextBlock Text="Capture source"
+                                               Style="{StaticResource LiveMicroLabelStyle}"
+                                               Margin="0,14,0,0" />
                                     <TextBlock Text="{Binding LiveSessionCastSourceLabel}"
                                                Style="{StaticResource LiveCodeStyle}"
                                                Margin="0,4,0,0" />
-                                    <TextBlock Text="scrcpy runtime"
+                                    <TextBlock Text="Surface runtime"
                                                Style="{StaticResource LiveMicroLabelStyle}"
                                                Margin="0,10,0,0" />
                                     <TextBlock Text="{Binding LiveSessionCastToolingLabel}"
@@ -316,12 +360,12 @@
                                 </StackPanel>
                             </Border>
                             <WrapPanel Margin="0,12,0,0">
-                                <Button Content="Start Display 0"
+                                <Button Content="{Binding LiveSessionCastStartActionLabel}"
                                         Command="{Binding StartLiveSessionCastCommand}"
                                         Style="{StaticResource PrimaryActionButtonStyle}" />
-                                <Button Content="Restart Cast"
+                                <Button Content="{Binding LiveSessionCastRestartActionLabel}"
                                         Command="{Binding RestartLiveSessionCastCommand}" />
-                                <Button Content="Stop Cast"
+                                <Button Content="{Binding LiveSessionCastStopActionLabel}"
                                         Command="{Binding StopLiveSessionCastCommand}" />
                             </WrapPanel>
                         </StackPanel>

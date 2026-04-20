@@ -1,7 +1,7 @@
 ﻿{
     "apps":  [
                  {
-                     "sha256":  "23CFB8A51E2BB089C05C09C2810D0902969EE7D35943B1B1948DF8F011624BE2",
+                     "sha256":  "13C9E6B8E8B8440B45875BBBED09137AD65AA9400AAABA823F731DF447A62E17",
                      "status":  "compatible",
                      "label":  "DOPE projected-feed Colorama build",
                      "notes":  "Bundled public DOPE projected-feed Colorama APK. The Windows companion treats this bundle as the approved install and launch target, and the current multilayer runtime consumes the bundled hotload CSV profiles with startup diagnostics readback. Live quest_twin_* transport remains a separate bridge lane.",

@@ -17,6 +17,10 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $projectPath = Join-Path $repoRoot 'src\DopeCompanion.App\DopeCompanion.App.csproj'
 $refreshLauncherScript = Join-Path $PSScriptRoot 'Refresh-Local-Desktop-Launcher.ps1'
+[xml]$projectXml = Get-Content -Path $projectPath
+$targetFramework = @($projectXml.Project.PropertyGroup.TargetFramework | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })[0]
+$outputPath = Join-Path $repoRoot "src\DopeCompanion.App\bin\$Configuration\$targetFramework"
+$exePath = Join-Path $outputPath 'DopeCompanion.exe'
 
 if (-not (Test-Path $projectPath)) {
     throw "App project not found at $projectPath"
@@ -30,27 +34,73 @@ if ($RefreshLauncher) {
     & $refreshLauncherScript | Out-Null
 }
 
-$dotnet = Get-Command dotnet -ErrorAction Stop
-$arguments = @(
-    'run',
-    '--project', $projectPath,
-    '-c', $Configuration,
-    '--no-launch-profile'
-)
+if (-not $NoBuild) {
+    $dotnet = Get-Command dotnet -ErrorAction Stop
+    $buildArguments = @(
+        'build',
+        $projectPath,
+        '-c', $Configuration,
+        '-p:DopeCompanionBrand=Dev'
+    )
 
-if ($NoBuild) {
-    $arguments += '--no-build'
+    $buildProcess = Start-Process `
+        -FilePath $dotnet.Source `
+        -ArgumentList $buildArguments `
+        -WorkingDirectory $repoRoot `
+        -WindowStyle Hidden `
+        -PassThru `
+        -Wait
+
+    if ($buildProcess.ExitCode -ne 0) {
+        throw "Local dev build failed with exit code $($buildProcess.ExitCode)."
+    }
+}
+elseif (-not (Test-Path $exePath)) {
+    throw "Local dev executable not found at $exePath. Re-run without -NoBuild first."
 }
 
-$process = Start-Process `
-    -FilePath $dotnet.Source `
-    -ArgumentList $arguments `
-    -WorkingDirectory $repoRoot `
-    -WindowStyle Hidden `
-    -PassThru
+$existingProcess = Get-Process -Name 'DopeCompanion' -ErrorAction SilentlyContinue |
+    Where-Object {
+        try {
+            $_.Path -and [string]::Equals($_.Path, $exePath, [StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $false
+        }
+    } |
+    Select-Object -First 1
+
+if ($null -ne $existingProcess) {
+    if ($Wait) {
+        Wait-Process -Id $existingProcess.Id
+    }
+
+    return [PSCustomObject]@{
+        LaunchMode = 'LocalDevExe'
+        ReusedProcess = $true
+        ProcessId = $existingProcess.Id
+        ExecutablePath = $exePath
+    }
+}
+
+$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+$startInfo.FileName = $exePath
+$startInfo.WorkingDirectory = $outputPath
+$startInfo.UseShellExecute = $false
+$startInfo.EnvironmentVariables['DOPE_COMPANION_LAUNCH_KIND'] = 'Dev'
+
+$process = [System.Diagnostics.Process]::Start($startInfo)
+if ($null -eq $process) {
+    throw "Failed to start local dev executable at $exePath."
+}
 
 if ($Wait) {
     Wait-Process -Id $process.Id
 }
 
-$process | Select-Object Id, ProcessName, StartTime
+[PSCustomObject]@{
+    LaunchMode = 'LocalDevExe'
+    ReusedProcess = $false
+    ProcessId = $process.Id
+    ExecutablePath = $exePath
+}

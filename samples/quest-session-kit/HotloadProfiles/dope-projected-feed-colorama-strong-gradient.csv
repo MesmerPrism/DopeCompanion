@@ -1,7 +1,7 @@
 # Public strong blur and gradient-warp profile for the projected-feed multi-layer Colorama quad scene.
 key,value
 hotload_profile_id,dope_projected_feed_colorama_strong_gradient
-hotload_profile_version,2026.04.17
+hotload_profile_version,2026.04.20
 hotload_profile_channel,public
 hotload_profile_lock,false
 performance_hints_enabled,true
@@ -34,6 +34,8 @@ projected_feed_max_horizontal_displacement,0.024
 projected_feed_max_vertical_displacement,0.024
 projected_feed_displacement_audio_range_boost,1.40
 projected_feed_pre_strength_brightness_blur,true
+projected_feed_pre_brightness_blur_radius_texels,4.0
+projected_feed_pre_brightness_blur_sigma,1.0
 projected_feed_displacement_blur_kernel,1
 projected_feed_displacement_blur_radius_texels,6.25
 projected_feed_displacement_blur_sigma,1.45

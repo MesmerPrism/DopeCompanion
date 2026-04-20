@@ -3,7 +3,7 @@ namespace DopeCompanion.Integration.Tests;
 public sealed class DisplayCastOverlayWindowTests
 {
     [Fact]
-    public async Task Display_cast_overlay_window_declares_focused_layer_preview_sidebar_tweak_list_apply_button_focus_layer_selector_and_audio_trigger_toggle()
+    public async Task Display_cast_overlay_window_declares_render_view_main_surface_selector_sidebar_tweak_list_apply_button_focus_layer_selector_and_audio_trigger_toggle()
     {
         var xamlPath = Path.Combine(
             AppContext.BaseDirectory,
@@ -18,7 +18,11 @@ public sealed class DisplayCastOverlayWindowTests
 
         var xaml = await File.ReadAllTextAsync(Path.GetFullPath(xamlPath));
 
-        Assert.Contains("Focused layer preview", xaml, StringComparison.Ordinal);
+        Assert.Contains("Render View", xaml, StringComparison.Ordinal);
+        Assert.Contains("Main view", xaml, StringComparison.Ordinal);
+        Assert.Contains("LiveSessionCastSurfaceOptions", xaml, StringComparison.Ordinal);
+        Assert.Contains("SelectLiveSessionCastSurfaceModeCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("IsLiveSessionCastRenderViewMode", xaml, StringComparison.Ordinal);
         Assert.Contains("LiveSessionCastFocusedLayerPreviewSummary", xaml, StringComparison.Ordinal);
         Assert.Contains("LiveSessionCastFocusedLayerPreviewImage", xaml, StringComparison.Ordinal);
         Assert.Contains("Live tweak values", xaml, StringComparison.Ordinal);

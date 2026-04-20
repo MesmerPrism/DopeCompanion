@@ -34,6 +34,7 @@ public static class Program
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildToolingCommand());
         rootCommand.AddCommand(BuildWindowsEnvironmentCommand());
+        rootCommand.AddCommand(BuildLiveSessionCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
         return await rootCommand.InvokeAsync(args);
@@ -835,6 +836,33 @@ public static class Program
         dopeCommand.AddCommand(BuildDopeVisualCommand(studyOption, rootOption, jsonOption, CreateRepeatedAssignmentOption));
         dopeCommand.AddCommand(BuildDopeControllerCommand(studyOption, rootOption, jsonOption, CreateRepeatedAssignmentOption));
         return dopeCommand;
+    }
+
+    private static Command BuildLiveSessionCommand()
+    {
+        var liveSessionCommand = new Command("live-session", "CLI mirror of the DOPE Live Session window and cast-surface verification workflows");
+        var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        liveSessionCommand.AddGlobalOption(jsonOption);
+
+        var outputOption = new Option<string?>("--output-dir", "Directory for the cast-window screenshots and JSON reliability report.");
+        var verifyCastWindowsCommand = new Command("verify-cast-windows", "Run the Live Session cast-window reliability check through the same WPF commands the UI uses.")
+        {
+            outputOption
+        };
+        verifyCastWindowsCommand.Handler = CommandHandler.Create(async (bool json, string? outputDir, string? device) =>
+        {
+            var result = await RunLiveSessionCastWindowVerificationAsync(outputDir, device).ConfigureAwait(false);
+            if (json)
+            {
+                DopeCliSupport.WriteJson(result);
+                return;
+            }
+
+            PrintLiveSessionCastWindowVerification(result);
+        });
+
+        liveSessionCommand.AddCommand(verifyCastWindowsCommand);
+        return liveSessionCommand;
     }
 
     private static Command BuildDopeVisualCommand(
@@ -1982,6 +2010,119 @@ public static class Program
         Console.WriteLine($"  License URL:       {component.LicenseUri}");
     }
 
+    private static async Task<LiveSessionCastWindowVerificationResult> RunLiveSessionCastWindowVerificationAsync(
+        string? outputDir,
+        string? device)
+    {
+        var repoRoot = CliAssetLocator.TryResolveRepoRoot()
+            ?? throw new DirectoryNotFoundException("Could not resolve the DopeCompanion repo root for the Live Session verification harness.");
+        var normalizedOutputDir = string.IsNullOrWhiteSpace(outputDir)
+            ? Path.Combine(repoRoot, "artifacts", "verify", "dope-cast-window-reliability")
+            : Path.GetFullPath(outputDir);
+        Directory.CreateDirectory(normalizedOutputDir);
+
+        var builtExecutablePath = CliAssetLocator.TryResolveVerificationHarnessExecutablePath();
+        var projectPath = CliAssetLocator.TryResolveVerificationHarnessProjectPath();
+        var useBuiltExecutable = !string.IsNullOrWhiteSpace(builtExecutablePath);
+        if (!useBuiltExecutable && string.IsNullOrWhiteSpace(projectPath))
+        {
+            throw new FileNotFoundException(
+                "Could not resolve the DopeCompanion verification harness. Build the repo once or keep tools/DopeCompanion.VerificationHarness available.");
+        }
+
+        var startInfo = useBuiltExecutable
+            ? new ProcessStartInfo(builtExecutablePath!)
+            : new ProcessStartInfo("dotnet")
+            {
+                Arguments = $"run --project \"{projectPath}\""
+            };
+        startInfo.WorkingDirectory = repoRoot;
+        startInfo.UseShellExecute = false;
+        startInfo.RedirectStandardOutput = true;
+        startInfo.RedirectStandardError = true;
+        startInfo.CreateNoWindow = true;
+        startInfo.EnvironmentVariables["DOPE_VERIFY_CAST_WINDOWS"] = "1";
+        startInfo.EnvironmentVariables["DOPE_VERIFY_OUTPUT_ROOT"] = normalizedOutputDir;
+        if (!string.IsNullOrWhiteSpace(device))
+        {
+            startInfo.EnvironmentVariables["DOPE_VERIFY_DEVICE"] = device.Trim();
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("The Live Session verification harness process could not be started.");
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        var completed = await Task.Run(() => process.WaitForExit((int)TimeSpan.FromMinutes(12).TotalMilliseconds)).ConfigureAwait(false);
+        if (!completed)
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+            }
+        }
+
+        var stdout = (await stdoutTask.ConfigureAwait(false)).Trim();
+        var stderr = (await stderrTask.ConfigureAwait(false)).Trim();
+        var reportPath = Path.Combine(normalizedOutputDir, "dope-cast-window-reliability-report.json");
+        var errorPath = Path.Combine(normalizedOutputDir, "dope-cast-window-reliability-error.txt");
+        var level = !completed
+            ? OperationOutcomeKind.Warning
+            : process.ExitCode == 0 && File.Exists(reportPath)
+                ? OperationOutcomeKind.Success
+                : OperationOutcomeKind.Failure;
+        var summary = !completed
+            ? "Live Session cast-window verification timed out."
+            : level == OperationOutcomeKind.Success
+                ? "Live Session cast-window verification completed."
+                : "Live Session cast-window verification failed.";
+        var detail = !completed
+            ? $"The verification harness exceeded the 12 minute timeout. Check {normalizedOutputDir} for partial artifacts."
+            : level == OperationOutcomeKind.Success
+                ? $"Artifacts written to {normalizedOutputDir}."
+            : File.Exists(errorPath)
+                ? await File.ReadAllTextAsync(errorPath).ConfigureAwait(false)
+                : !string.IsNullOrWhiteSpace(stderr)
+                    ? stderr
+                    : string.IsNullOrWhiteSpace(stdout)
+                        ? reportPath
+                        : stdout;
+
+        return new LiveSessionCastWindowVerificationResult(
+            level,
+            summary,
+            detail.Trim(),
+            repoRoot,
+            useBuiltExecutable ? builtExecutablePath! : projectPath!,
+            useBuiltExecutable,
+            normalizedOutputDir,
+            reportPath,
+            errorPath,
+            completed ? process.ExitCode : -1,
+            stdout,
+            stderr);
+    }
+
+    private static void PrintLiveSessionCastWindowVerification(LiveSessionCastWindowVerificationResult result)
+    {
+        Console.WriteLine($"[{result.Level}] {result.Summary}");
+        Console.WriteLine($"Repo root:      {result.RepoRoot}");
+        Console.WriteLine($"Harness entry:  {result.HarnessEntryPoint}");
+        Console.WriteLine($"Built harness:  {result.UsedBuiltExecutable}");
+        Console.WriteLine($"Output folder:  {result.OutputDirectory}");
+        Console.WriteLine($"Report path:    {result.ReportPath}");
+        Console.WriteLine($"Error path:     {result.ErrorPath}");
+        Console.WriteLine($"Exit code:      {result.ExitCode}");
+        if (!string.IsNullOrWhiteSpace(result.Detail))
+        {
+            Console.WriteLine();
+            Console.WriteLine(result.Detail);
+        }
+    }
+
     private static string ResolveCatalogRoot()
     {
         return CliAssetLocator.TryResolveQuestSessionKitRoot()
@@ -2001,5 +2142,19 @@ public static class Program
         var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown";
         return $"DopeCompanion.Cli {version}";
     }
+
+    private sealed record LiveSessionCastWindowVerificationResult(
+        OperationOutcomeKind Level,
+        string Summary,
+        string Detail,
+        string RepoRoot,
+        string HarnessEntryPoint,
+        bool UsedBuiltExecutable,
+        string OutputDirectory,
+        string ReportPath,
+        string ErrorPath,
+        int ExitCode,
+        string Stdout,
+        string Stderr);
 }
 

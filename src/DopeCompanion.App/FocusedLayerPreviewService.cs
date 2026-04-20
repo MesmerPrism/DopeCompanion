@@ -34,6 +34,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
     private Task? _listenerTask;
     private string _selector = string.Empty;
     private bool _disposed;
+    private byte[]? _latestImageBytes;
     private byte[]? _latestCodecConfig;
     private readonly List<EncodedPacket> _currentGopPackets = [];
 
@@ -65,13 +66,17 @@ internal sealed class FocusedLayerPreviewService : IDisposable
 
     public DateTimeOffset? LatestFrameReceivedAtUtc { get; private set; }
 
+    public DateTimeOffset? LatestDecodedFrameAtUtc { get; private set; }
+
     public string LatestArtifactPath => _artifactPath;
+
+    public byte[]? LatestImageBytes => _latestImageBytes;
 
     public OperationOutcomeKind Level { get; private set; } = OperationOutcomeKind.Preview;
 
-    public string Summary { get; private set; } = "Focused layer preview idle.";
+    public string Summary { get; private set; } = "Render View idle.";
 
-    public string Detail { get; private set; } = "Start Display 0 cast to listen for direct Quest layer preview frames.";
+    public string Detail { get; private set; } = "Start the cast surface to listen for direct Quest render-view frames.";
 
     public bool IsRunning => _listenerTask is { IsCompleted: false };
 
@@ -83,8 +88,8 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Focused layer preview blocked.",
-                "A Quest selector is required before the companion can bind adb reverse for the focused layer preview stream.");
+                "Render View blocked.",
+                "A Quest selector is required before the companion can bind adb reverse for the direct Quest render-view stream.");
         }
 
         var normalizedSelector = selector.Trim();
@@ -101,8 +106,15 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                 await StopCoreAsync(removeReverseMapping: true, CancellationToken.None).ConfigureAwait(false);
 
                 _selector = normalizedSelector;
+                LatestLayerMode = -1;
+                LatestWidth = 0;
+                LatestHeight = 0;
+                LatestFrameReceivedAtUtc = null;
+                LatestDecodedFrameAtUtc = null;
+                _latestImageBytes = null;
                 _latestCodecConfig = null;
                 _currentGopPackets.Clear();
+                DeleteArtifactIfPresent(_artifactPath, _artifactTempPath, _h264ArtifactPath, _h264ArtifactTempPath);
                 _listenerCancellationTokenSource = new CancellationTokenSource();
                 _listener = new TcpListener(IPAddress.Loopback, Port);
                 _listener.Server.NoDelay = true;
@@ -111,8 +123,8 @@ internal sealed class FocusedLayerPreviewService : IDisposable
 
                 SetState(
                     OperationOutcomeKind.Preview,
-                    "Focused layer preview listening.",
-                    $"Listening on 127.0.0.1:{Port} for direct Quest layer preview frames from {normalizedSelector}.");
+                    "Render View listening.",
+                    $"Listening on 127.0.0.1:{Port} for direct Quest render-view frames from {normalizedSelector}.");
             }
         }
         finally
@@ -125,12 +137,12 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             SetState(
                 OperationOutcomeKind.Warning,
-                "Focused layer preview listening with reverse advisory.",
+                "Render View listening with reverse advisory.",
                 $"Listening on 127.0.0.1:{Port} for {normalizedSelector}. {reverseOutcome.Detail}".Trim());
 
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Focused layer preview listening with reverse advisory.",
+                "Render View listening with reverse advisory.",
                 $"The desktop listener is live, but adb reverse could not be confirmed for {normalizedSelector}. {reverseOutcome.Detail}".Trim(),
                 Endpoint: normalizedSelector);
         }
@@ -139,13 +151,13 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             SetState(
                 OperationOutcomeKind.Preview,
-                "Focused layer preview ready.",
+                "Render View ready.",
                 $"Listening on 127.0.0.1:{Port} and confirmed adb reverse for {normalizedSelector}. Waiting for the next Quest frame.");
         }
 
         return new OperationOutcome(
             shouldRestart ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview,
-            "Focused layer preview ready.",
+            "Render View ready.",
             $"Listening on 127.0.0.1:{Port} and confirmed adb reverse for {normalizedSelector}. Waiting for the next Quest frame.",
             Endpoint: normalizedSelector,
             Items: [_artifactPath, _h264ArtifactPath]);
@@ -162,12 +174,12 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             {
                 SetState(
                     OperationOutcomeKind.Preview,
-                    "Focused layer preview already stopped.",
+                    "Render View already stopped.",
                     BuildIdleDetail());
 
                 return new OperationOutcome(
                     OperationOutcomeKind.Preview,
-                    "Focused layer preview already stopped.",
+                    "Render View already stopped.",
                     BuildIdleDetail(),
                     Items: [_artifactPath, _h264ArtifactPath]);
             }
@@ -176,15 +188,15 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             await StopCoreAsync(removeReverseMapping: true, cancellationToken).ConfigureAwait(false);
             SetState(
                 OperationOutcomeKind.Preview,
-                "Focused layer preview stopped.",
+                "Render View stopped.",
                 BuildIdleDetail());
 
             return new OperationOutcome(
                 OperationOutcomeKind.Success,
-                "Focused layer preview stopped.",
+                "Render View stopped.",
                 string.IsNullOrWhiteSpace(selector)
                     ? BuildIdleDetail()
-                    : $"Stopped listening for direct Quest layer preview frames from {selector}. {BuildIdleDetail()}".Trim(),
+                    : $"Stopped listening for direct Quest render-view frames from {selector}. {BuildIdleDetail()}".Trim(),
                 Endpoint: string.IsNullOrWhiteSpace(selector) ? null : selector,
                 Items: [_artifactPath, _h264ArtifactPath]);
         }
@@ -276,9 +288,9 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                 client.NoDelay = true;
                 SetState(
                     LatestFrameReceivedAtUtc is null ? OperationOutcomeKind.Preview : OperationOutcomeKind.Success,
-                    LatestFrameReceivedAtUtc is null ? "Focused layer preview stream connected." : Summary,
+                    LatestFrameReceivedAtUtc is null ? "Render View stream connected." : Summary,
                     LatestFrameReceivedAtUtc is null
-                        ? $"Quest connected to the focused layer preview listener on 127.0.0.1:{Port}. Waiting for frame data."
+                        ? $"Quest connected to the Render View listener on 127.0.0.1:{Port}. Waiting for frame data."
                         : Detail);
 
                 await ReceiveFramesAsync(client, cancellationToken).ConfigureAwait(false);
@@ -287,10 +299,10 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                 {
                     SetState(
                         LatestFrameReceivedAtUtc is null ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning,
-                        LatestFrameReceivedAtUtc is null ? "Focused layer preview waiting for stream." : "Focused layer preview stream disconnected.",
+                        LatestFrameReceivedAtUtc is null ? "Render View waiting for stream." : "Render View stream disconnected.",
                         LatestFrameReceivedAtUtc is null
                             ? $"The listener is still bound to 127.0.0.1:{Port}, but the Quest has not delivered a frame yet."
-                            : $"The direct Quest layer preview connection closed. The last verified frame remains available at {_artifactPath}.");
+                            : $"The direct Quest render-view connection closed. The last verified frame remains available at {_artifactPath}.");
                 }
             }
         }
@@ -307,7 +319,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             SetState(
                 OperationOutcomeKind.Warning,
-                "Focused layer preview listener failed.",
+                "Render View listener failed.",
                 ex.Message);
         }
     }
@@ -397,12 +409,14 @@ internal sealed class FocusedLayerPreviewService : IDisposable
 
     private void HandleLegacyPngFrame(int layerMode, int width, int height, DateTimeOffset receivedAtUtc, byte[] payload)
     {
-        WriteBinaryArtifact(_artifactPath, _artifactTempPath, payload);
+        var normalizedPayload = NormalizePreviewPngPayload(payload);
+        WriteBinaryArtifact(_artifactPath, _artifactTempPath, normalizedPayload);
         PublishFrame(
             layerMode,
             width,
             height,
             receivedAtUtc,
+            normalizedPayload,
             $"Received {width} × {height} direct Quest PNG preview at {receivedAtUtc:HH:mm:ss} UTC on 127.0.0.1:{Port}. Latest frame saved to {_artifactPath}.");
     }
 
@@ -412,7 +426,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             SetState(
                 OperationOutcomeKind.Warning,
-                "Focused layer preview codec unsupported.",
+                "Render View codec unsupported.",
                 $"Received codec id {codec} on 127.0.0.1:{Port}, but only H.264 Annex B is currently supported.");
             return;
         }
@@ -452,9 +466,11 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         if (artifactBytes is null || artifactBytes.Length == 0)
         {
             SetState(
-                OperationOutcomeKind.Preview,
+                LatestDecodedFrameAtUtc is null ? OperationOutcomeKind.Preview : OperationOutcomeKind.Success,
                 $"{ResolveLayerLabel(layerMode)} H.264 stream live.",
-                $"Received H.264 packet for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the GOP is not decodable yet.");
+                LatestDecodedFrameAtUtc is null
+                    ? $"Received H.264 packet for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the GOP is not decodable yet."
+                    : $"Received H.264 packet for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the latest GOP is not decodable yet. Showing the last decoded frame from {LatestDecodedFrameAtUtc:HH:mm:ss} UTC.");
             return;
         }
 
@@ -462,9 +478,11 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         if (!TryDecodeLatestFrameFromH264Artifact(_h264ArtifactPath, out var decodedPng))
         {
             SetState(
-                OperationOutcomeKind.Warning,
+                LatestDecodedFrameAtUtc is null ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success,
                 $"{ResolveLayerLabel(layerMode)} H.264 stream live.",
-                $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a preview frame yet. Latest GOP saved to {_h264ArtifactPath}.");
+                LatestDecodedFrameAtUtc is null
+                    ? $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a preview frame yet. Latest GOP saved to {_h264ArtifactPath}."
+                    : $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a fresh preview frame yet. Showing the last decoded frame from {LatestDecodedFrameAtUtc:HH:mm:ss} UTC; latest GOP saved to {_h264ArtifactPath}.");
             return;
         }
 
@@ -474,6 +492,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             width,
             height,
             receivedAtUtc,
+            decodedPng,
             $"Received {width} × {height} direct Quest H.264 preview at {receivedAtUtc:HH:mm:ss} UTC on 127.0.0.1:{Port}. Latest decoded frame saved to {_artifactPath}; latest GOP saved to {_h264ArtifactPath}.");
     }
 
@@ -535,6 +554,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                 return false;
             }
 
+            Cv2.Flip(latestFrame, latestFrame, FlipMode.X);
             return Cv2.ImEncode(".png", latestFrame, out pngPayload);
         }
         catch
@@ -543,17 +563,38 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         }
     }
 
-    private void PublishFrame(int layerMode, int width, int height, DateTimeOffset receivedAtUtc, string detail)
+    private void PublishFrame(int layerMode, int width, int height, DateTimeOffset receivedAtUtc, byte[] imageBytes, string detail)
     {
         LatestLayerMode = layerMode;
         LatestWidth = width;
         LatestHeight = height;
         LatestFrameReceivedAtUtc = receivedAtUtc;
+        LatestDecodedFrameAtUtc = receivedAtUtc;
+        _latestImageBytes = imageBytes.ToArray();
 
         SetState(
             OperationOutcomeKind.Success,
-            $"{ResolveLayerLabel(layerMode)} preview live.",
+            $"{ResolveLayerLabel(layerMode)} Render View live.",
             detail);
+    }
+
+    private static byte[] NormalizePreviewPngPayload(byte[] payload)
+    {
+        try
+        {
+            using var image = Cv2.ImDecode(payload, ImreadModes.Unchanged);
+            if (image.Empty())
+            {
+                return payload;
+            }
+
+            Cv2.Flip(image, image, FlipMode.X);
+            return Cv2.ImEncode(".png", image, out var normalized) ? normalized : payload;
+        }
+        catch
+        {
+            return payload;
+        }
     }
 
     private static void WriteBinaryArtifact(string artifactPath, string tempPath, byte[] payload)
@@ -568,6 +609,23 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         File.Move(tempPath, artifactPath, overwrite: true);
     }
 
+    private static void DeleteArtifactIfPresent(params string[] paths)
+    {
+        foreach (var path in paths)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
     private void SetState(OperationOutcomeKind level, string summary, string detail)
     {
         Level = level;
@@ -578,7 +636,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
 
     private string BuildIdleDetail()
         => LatestFrameReceivedAtUtc is null
-            ? "Start Display 0 cast to listen for direct Quest layer preview frames."
+            ? "Start the cast surface to listen for direct Quest render-view frames."
             : $"The last received frame remains cached at {_artifactPath}.";
 
     private void ThrowIfDisposed()
@@ -627,9 +685,9 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             0 => "Composite",
             1 => "Raw Feed",
-            2 => "Pre-Blur",
-            3 => "Raw Strength",
-            4 => "Blurred Strength",
+            2 => "Pre-Brightness",
+            3 => "Raw Brightness",
+            4 => "Blurred Brightness",
             5 => "Depth",
             _ => $"Layer {layerMode}"
         };
@@ -641,8 +699,8 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Focused layer preview reverse unavailable.",
-                "adb.exe could not be located for the focused layer preview reverse mapping.",
+                "Render View reverse unavailable.",
+                "adb.exe could not be located for the Render View reverse mapping.",
                 Endpoint: selector);
         }
 
@@ -680,8 +738,8 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             return new OperationOutcome(
                 OperationOutcomeKind.Success,
                 removeMapping
-                    ? "Focused layer preview reverse cleared."
-                    : "Focused layer preview reverse ready.",
+                    ? "Render View reverse cleared."
+                    : "Render View reverse ready.",
                 string.IsNullOrWhiteSpace(detail)
                     ? removeMapping
                         ? $"Removed adb reverse tcp:{port} for {selector}."
@@ -693,8 +751,8 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         return new OperationOutcome(
             OperationOutcomeKind.Warning,
             removeMapping
-                ? "Focused layer preview reverse clear failed."
-                : "Focused layer preview reverse failed.",
+                ? "Render View reverse clear failed."
+                : "Render View reverse failed.",
             string.IsNullOrWhiteSpace(detail)
                 ? $"adb reverse exited with code {process.ExitCode} for {selector}."
                 : detail,

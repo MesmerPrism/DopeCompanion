@@ -112,6 +112,12 @@ internal sealed class QuestDisplayCastService : IDisposable
     public Task<OperationOutcome> StartDisplay0Async(string selector, CancellationToken cancellationToken = default)
         => StartDisplay0CoreAsync(selector, cancellationToken);
 
+    public Task<OperationOutcome> StartDisplay0Async(
+        string selector,
+        WindowLayoutBounds initialWindowBounds,
+        CancellationToken cancellationToken = default)
+        => StartDisplay0CoreAsync(selector, initialWindowBounds, cancellationToken);
+
     public bool TryGetWindowHandle(out nint windowHandle)
     {
         RefreshState();

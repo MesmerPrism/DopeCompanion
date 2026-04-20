@@ -47,6 +47,16 @@ public sealed class CliDiagnosticsCommandTests
         Assert.Contains("--no-pdf", help, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Live_session_verify_cast_windows_help_is_exposed()
+    {
+        var help = await InvokeCliAsync("live-session", "verify-cast-windows", "--help");
+
+        Assert.Contains("cast-window reliability", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--output-dir", help, StringComparison.Ordinal);
+        Assert.Contains("--json", help, StringComparison.Ordinal);
+    }
+
     private static async Task<string> InvokeCliAsync(params string[] args)
     {
         await CliConsoleTestGate.Instance.WaitAsync();

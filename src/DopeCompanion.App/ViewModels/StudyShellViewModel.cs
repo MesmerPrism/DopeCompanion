@@ -615,7 +615,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string PinnedPackageId => _study.App.PackageId;
     public string PublishedBuildSummary => AppBuildIdentity.Current.Summary;
     public string PublishedBuildDetail => AppBuildIdentity.Current.Detail;
-    public string ExperimentSessionWindowTitle => $"Dope Experiment Session ({AppBuildIdentity.Current.ShortId})";
+    public string ExperimentSessionWindowTitle => $"{AppBuildIdentity.Current.ExperimentSessionWindowLabel} ({AppBuildIdentity.Current.ShortId})";
     public string OperatorDataRootPath => CompanionOperatorDataLayout.RootPath;
     public string ManagedToolingRootPath => OfficialQuestToolingLayout.RootPath;
     public string LocalAgentWorkspacePath => _localAgentWorkspaceService.RootPath;
@@ -13665,11 +13665,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         try
         {
+            var bytes = File.ReadAllBytes(path);
+            using var stream = new MemoryStream(bytes, writable: false);
             var image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-            image.UriSource = new Uri(path, UriKind.Absolute);
+            image.StreamSource = stream;
             image.EndInit();
             image.Freeze();
             return image;

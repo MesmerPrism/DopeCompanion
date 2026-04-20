@@ -1,7 +1,7 @@
 # Public soft-blur profile for the projected-feed multi-layer Colorama quad scene.
 key,value
 hotload_profile_id,dope_projected_feed_colorama_soft_gradient
-hotload_profile_version,2026.04.17
+hotload_profile_version,2026.04.20
 hotload_profile_channel,public
 hotload_profile_lock,false
 performance_hints_enabled,true
@@ -34,6 +34,8 @@ projected_feed_max_horizontal_displacement,0.017
 projected_feed_max_vertical_displacement,0.017
 projected_feed_displacement_audio_range_boost,1.10
 projected_feed_pre_strength_brightness_blur,true
+projected_feed_pre_brightness_blur_radius_texels,1.75
+projected_feed_pre_brightness_blur_sigma,0.60
 projected_feed_displacement_blur_kernel,1
 projected_feed_displacement_blur_radius_texels,2.5
 projected_feed_displacement_blur_sigma,0.75

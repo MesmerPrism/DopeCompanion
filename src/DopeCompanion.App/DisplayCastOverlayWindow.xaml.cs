@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using DopeCompanion.App.ViewModels;
 
 namespace DopeCompanion.App;
 
@@ -22,6 +23,7 @@ internal partial class DisplayCastOverlayWindow : Window
     private readonly DispatcherTimer _followTimer;
     private readonly double _baseMinWidth;
     private readonly double _baseMinHeight;
+    private readonly bool _createdForRenderViewMode;
     private bool _syncingFromCastWindow;
     private bool _applyingOverlayBounds;
     private bool _isFullscreen;
@@ -32,20 +34,38 @@ internal partial class DisplayCastOverlayWindow : Window
     private nint _windowHandle;
     private nint _ownedCastHandle;
 
-    internal DisplayCastOverlayWindow(QuestDisplayCastService castService, ICommand stopCastCommand, object? dataContext = null)
+    internal DisplayCastOverlayWindow(
+        QuestDisplayCastService castService,
+        ICommand stopCastCommand,
+        bool createdForRenderViewMode,
+        object? dataContext = null,
+        WindowLayoutBounds? initialOverlayBounds = null)
     {
         _castService = castService ?? throw new ArgumentNullException(nameof(castService));
         _stopCastCommand = stopCastCommand ?? throw new ArgumentNullException(nameof(stopCastCommand));
+        _createdForRenderViewMode = createdForRenderViewMode;
 
         InitializeComponent();
         WindowThemeHelper.Attach(this);
         DataContext = dataContext;
+        ShowActivated = createdForRenderViewMode;
+        ShowInTaskbar = false;
 
         _baseMinWidth = MinWidth;
         _baseMinHeight = MinHeight;
-        Left = -10000;
-        Top = -10000;
-        CaptureSourceText.Text = _castService.CaptureSourceLabel;
+        if (initialOverlayBounds is { } bounds)
+        {
+            Left = bounds.X;
+            Top = bounds.Y;
+            Width = Math.Max(MinWidth, bounds.Width);
+            Height = Math.Max(MinHeight, bounds.Height);
+        }
+        else
+        {
+            Left = -10000;
+            Top = -10000;
+        }
+
         WindowSizeText.Text = "Waiting for cast";
 
         _followTimer = new DispatcherTimer(
@@ -63,6 +83,26 @@ internal partial class DisplayCastOverlayWindow : Window
 
     public void RefreshFromCastWindow()
         => SyncToCastWindow();
+
+    public bool CreatedForRenderViewMode => _createdForRenderViewMode;
+
+    public WindowLayoutBounds CurrentOverlayBounds => GetCurrentOverlayBounds();
+
+    public bool TryGetCurrentCastDeviceBounds(out WindowLayoutBounds bounds)
+    {
+        if (!TryGetChromeMetrics(out var metrics))
+        {
+            bounds = new WindowLayoutBounds(0, 0, 0, 0);
+            return false;
+        }
+
+        var castDipBounds = metrics.ContractOuterBounds(GetCurrentOverlayBounds());
+        bounds = ConvertDipBoundsToDevicePixels(castDipBounds);
+        return true;
+    }
+
+    private bool IsRenderViewMode
+        => DataContext is MainWindowViewModel viewModel && viewModel.IsLiveSessionCastRenderViewMode;
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
@@ -100,6 +140,12 @@ internal partial class DisplayCastOverlayWindow : Window
     {
         if (!IsLoaded || _isResizingWithGrip)
         {
+            return;
+        }
+
+        if (IsRenderViewMode)
+        {
+            SyncToRenderViewWindow();
             return;
         }
 
@@ -158,6 +204,73 @@ internal partial class DisplayCastOverlayWindow : Window
         }
     }
 
+    private void SyncToRenderViewWindow()
+    {
+        ClearOwner();
+        RefreshMinimumWindowSize();
+        var restoredFromMinimized = false;
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+            restoredFromMinimized = true;
+        }
+
+        var recenteredToVisibleDesktop = EnsureStandaloneBoundsVisible();
+        var shouldActivate = restoredFromMinimized || recenteredToVisibleDesktop;
+
+        if (!IsVisible)
+        {
+            shouldActivate = true;
+            Show();
+            QueueChromeRefresh();
+        }
+
+        UpdateWindowState(ConvertDipBoundsToDevicePixels(GetCurrentOverlayBounds()));
+        if (shouldActivate)
+        {
+            ActivateOverlayWindow();
+        }
+    }
+
+    private bool EnsureStandaloneBoundsVisible()
+    {
+        var currentBounds = new Rect(Left, Top, Math.Max(MinWidth, Width), Math.Max(MinHeight, Height));
+        var virtualDesktopBounds = new Rect(
+            SystemParameters.VirtualScreenLeft,
+            SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth,
+            SystemParameters.VirtualScreenHeight);
+        if (Left > -9000 &&
+            Top > -9000 &&
+            Width >= MinWidth &&
+            Height >= MinHeight &&
+            currentBounds.IntersectsWith(virtualDesktopBounds))
+        {
+            return false;
+        }
+
+        var workArea = SystemParameters.WorkArea;
+        var width = Math.Max(MinWidth, Width > 0 ? Width : 1120);
+        var height = Math.Max(MinHeight, Height > 0 ? Height : 720);
+        var left = workArea.Left + Math.Max(0, (workArea.Width - width) / 2);
+        var top = workArea.Top + Math.Max(0, (workArea.Height - height) / 2);
+
+        _syncingFromCastWindow = true;
+        try
+        {
+            Left = left;
+            Top = top;
+            Width = width;
+            Height = height;
+        }
+        finally
+        {
+            _syncingFromCastWindow = false;
+        }
+
+        return true;
+    }
+
     private void OnOverlayBoundsChanged(object? sender, EventArgs e)
     {
         if (_syncingFromCastWindow || _applyingOverlayBounds || !IsLoaded || _isResizingWithGrip || _castService.IsRestarting)
@@ -166,6 +279,13 @@ internal partial class DisplayCastOverlayWindow : Window
         }
 
         _isFullscreen = false;
+        if (IsRenderViewMode)
+        {
+            _restoreBounds = ConvertDipBoundsToDevicePixels(GetCurrentOverlayBounds());
+            UpdateWindowState();
+            return;
+        }
+
         ApplyOverlayBoundsToCastWindow();
         UpdateWindowState();
     }
@@ -200,7 +320,7 @@ internal partial class DisplayCastOverlayWindow : Window
 
     private void UpdateWindowState(WindowLayoutBounds? bounds = null)
     {
-        if (_castService.IsRestarting)
+        if (!IsRenderViewMode && _castService.IsRestarting)
         {
             WindowSizeText.Text = "Reloading…";
             FullscreenButton.Content = _isFullscreen ? "Restore" : "Full Size";
@@ -214,25 +334,38 @@ internal partial class DisplayCastOverlayWindow : Window
             {
                 bounds = ConvertDipBoundsToDevicePixels(GetCurrentOverlayBounds());
             }
-            else if (_castService.TryGetWindowBounds(out var currentCastBounds))
+            else if (!IsRenderViewMode && _castService.TryGetWindowBounds(out var currentCastBounds))
             {
                 var overlayDipBounds = ExpandCastBoundsToOverlayBounds(ConvertDevicePixelsToDipBounds(currentCastBounds));
                 bounds = ConvertDipBoundsToDevicePixels(overlayDipBounds);
             }
         }
 
-        Title = $"{_castService.WindowTitle} Controls";
+        Title = IsRenderViewMode
+            ? "DOPE Companion Render View"
+            : $"{_castService.WindowTitle} Controls";
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            CaptureSourceText.Text = viewModel.LiveSessionCastSourceLabel;
+        }
+        else
+        {
+            CaptureSourceText.Text = _castService.CaptureSourceLabel;
+        }
+
         if (bounds is { Width: > 0, Height: > 0 })
         {
             WindowSizeText.Text = $"{bounds.Width} × {bounds.Height}";
         }
         else
         {
-            WindowSizeText.Text = "Waiting for cast";
+            WindowSizeText.Text = IsRenderViewMode ? "Waiting for Render View" : "Waiting for cast";
         }
 
         FullscreenButton.Content = _isFullscreen ? "Restore" : "Full Size";
-        FullscreenButton.ToolTip = _isFullscreen ? "Restore the prior cast size" : "Expand the cast to the current desktop work area";
+        FullscreenButton.ToolTip = _isFullscreen
+            ? "Restore the prior surface size"
+            : "Expand the current main surface to the desktop work area";
     }
 
     private void QueueChromeRefresh()
@@ -311,6 +444,12 @@ internal partial class DisplayCastOverlayWindow : Window
 
     private void OnMinimizeWindowClicked(object sender, RoutedEventArgs e)
     {
+        if (IsRenderViewMode)
+        {
+            WindowState = WindowState.Minimized;
+            return;
+        }
+
         _castService.TryMinimizeWindow();
         Hide();
     }
@@ -329,7 +468,7 @@ internal partial class DisplayCastOverlayWindow : Window
             }
         }
 
-        if (_castService.TryGetWindowBounds(out var currentBounds))
+        if (IsRenderViewMode || _castService.TryGetWindowBounds(out _))
         {
             _restoreBounds = ConvertDipBoundsToDevicePixels(GetCurrentOverlayBounds());
         }
@@ -375,15 +514,34 @@ internal partial class DisplayCastOverlayWindow : Window
 
     private void ActivateOverlayWindow()
     {
-        if (!IsVisible)
-        {
-            return;
-        }
-
         try
         {
+            if (!IsVisible)
+            {
+                Show();
+            }
+
+            if (WindowState == WindowState.Minimized)
+            {
+                WindowState = WindowState.Normal;
+            }
+
             Activate();
             Focus();
+            if (_windowHandle != 0)
+            {
+                if (NativeMethods.IsIconic(_windowHandle))
+                {
+                    NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwRestore);
+                }
+                else
+                {
+                    NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwShow);
+                }
+
+                NativeMethods.BringWindowToTop(_windowHandle);
+                NativeMethods.SetForegroundWindow(_windowHandle);
+            }
         }
         catch (InvalidOperationException)
         {
@@ -517,6 +675,26 @@ internal partial class DisplayCastOverlayWindow : Window
             return;
         }
 
+        if (IsRenderViewMode)
+        {
+            var renderViewDipBounds = ConvertDevicePixelsToDipBounds(overlayBounds);
+            _syncingFromCastWindow = true;
+            try
+            {
+                Left = renderViewDipBounds.X;
+                Top = renderViewDipBounds.Y;
+                Width = Math.Max(MinWidth, renderViewDipBounds.Width);
+                Height = Math.Max(MinHeight, renderViewDipBounds.Height);
+            }
+            finally
+            {
+                _syncingFromCastWindow = false;
+            }
+
+            UpdateWindowState(overlayBounds);
+            return;
+        }
+
         RefreshMinimumWindowSize();
         var overlayDipBounds = ConvertDevicePixelsToDipBounds(overlayBounds);
         var castDeviceBounds = ConvertDipBoundsToDevicePixels(ContractOverlayBoundsToCastBounds(overlayDipBounds));
@@ -569,6 +747,13 @@ internal partial class DisplayCastOverlayWindow : Window
         var headerBounds = HeaderChrome.TransformToAncestor(this)
             .TransformBounds(new Rect(new Point(0, 0), HeaderChrome.RenderSize));
         if (headerBounds.Contains(point))
+        {
+            return true;
+        }
+
+        var viewportBounds = VideoViewportSlot.TransformToAncestor(this)
+            .TransformBounds(new Rect(new Point(0, 0), VideoViewportSlot.RenderSize));
+        if (IsRenderViewMode && viewportBounds.Contains(point))
         {
             return true;
         }
@@ -634,6 +819,17 @@ internal partial class DisplayCastOverlayWindow : Window
         _ownedCastHandle = castHandle;
     }
 
+    private void ClearOwner()
+    {
+        if (_windowHandle == 0 || _ownedCastHandle == 0)
+        {
+            return;
+        }
+
+        SetWindowLongPtr(_windowHandle, GwlpHwndParent, 0);
+        _ownedCastHandle = 0;
+    }
+
     private WindowLayoutBounds GetCurrentOverlayBounds()
         => new(
             (int)Math.Round(Left),
@@ -696,6 +892,18 @@ internal partial class DisplayCastOverlayWindow : Window
     {
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsIconic(nint windowHandle);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool BringWindowToTop(nint windowHandle);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetForegroundWindow(nint windowHandle);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ShowWindow(nint windowHandle, int command);
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -718,6 +926,8 @@ internal partial class DisplayCastOverlayWindow : Window
             uint flags);
 
         public const int SwShowNoActivate = 4;
+        public const int SwShow = 5;
+        public const int SwRestore = 9;
 
         public const uint SwpNoSize = 0x0001;
         public const uint SwpNoMove = 0x0002;
