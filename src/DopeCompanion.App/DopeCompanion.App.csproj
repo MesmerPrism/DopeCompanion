@@ -21,51 +21,27 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\samples\quest-session-kit\**\*.*"
-          Link="samples\quest-session-kit\%(RecursiveDir)%(Filename)%(Extension)"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\samples\study-shells\**\*.*"
-          Link="samples\study-shells\%(RecursiveDir)%(Filename)%(Extension)"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\samples\oscillator-config\**\*.*"
-          Link="samples\oscillator-config\%(RecursiveDir)%(Filename)%(Extension)"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\docs\cli.md"
-          Link="docs\cli.md"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\docs\study-shells.md"
-          Link="docs\study-shells.md"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\docs\monitoring-and-control.md"
-          Link="docs\monitoring-and-control.md"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\tools\reports\generate_dope_validation_pdf.py"
-          Link="tools\reports\generate_dope_validation_pdf.py"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\tools\reports\generate_dope_diagnostics_pdf.py"
-          Link="tools\reports\generate_dope_diagnostics_pdf.py"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="runtimes\win-x64\native\lsl.dll"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\samples\quest-session-kit\**\*.*" Link="samples\quest-session-kit\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\samples\study-shells\**\*.*" Link="samples\study-shells\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\samples\oscillator-config\**\*.*" Link="samples\oscillator-config\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\cli.md" Link="docs\cli.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\study-shells.md" Link="docs\study-shells.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\monitoring-and-control.md" Link="docs\monitoring-and-control.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\tools\reports\generate_dope_validation_pdf.py" Link="tools\reports\generate_dope_validation_pdf.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\tools\reports\generate_dope_diagnostics_pdf.py" Link="tools\reports\generate_dope_diagnostics_pdf.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="runtimes\win-x64\native\lsl.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="$(BrandingAssetRoot)\dope-companion.png"
-              Link="Assets\dope-companion.png" />
+    <Resource Include="$(BrandingAssetRoot)\dope-companion.png" Link="Assets\dope-companion.png" />
   </ItemGroup>
 
-  <Target Name="PublishBundledCli"
-          AfterTargets="Publish"
-          Condition="'$(IsCrossTargetingBuild)' != 'true'">
+  <ItemGroup>
+    <PackageReference Include="OpenCvSharp4" Version="4.10.0.20240616" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20240616" />
+  </ItemGroup>
+
+  <Target Name="PublishBundledCli" AfterTargets="Publish" Condition="'$(IsCrossTargetingBuild)' != 'true'">
     <PropertyGroup>
       <_BundledCliRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BundledCliRuntimeIdentifier>
       <_BundledCliRuntimeIdentifier Condition="'$(_BundledCliRuntimeIdentifier)' == ''">win-x64</_BundledCliRuntimeIdentifier>
@@ -74,16 +50,10 @@
       <_BundledCliRuntimeNativeDir>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'runtimes', 'win-x64', 'native'))</_BundledCliRuntimeNativeDir>
     </PropertyGroup>
     <MakeDir Directories="$(_BundledCliPublishDir)" />
-    <Exec Command="dotnet publish &quot;$(BundledCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --runtime &quot;$(_BundledCliRuntimeIdentifier)&quot; -p:PublishSingleFile=true -p:SelfContained=true --output &quot;$(_BundledCliPublishDir)&quot;"
-          WorkingDirectory="$(MSBuildProjectDirectory)" />
-    <MakeDir Directories="$(_BundledCliRuntimeNativeDir)"
-             Condition="Exists('$(_BundledCliLslSource)')" />
-    <Copy SourceFiles="$(_BundledCliLslSource)"
-          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'lsl.dll'))"
-          Condition="Exists('$(_BundledCliLslSource)')" />
-    <Copy SourceFiles="$(_BundledCliLslSource)"
-          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliRuntimeNativeDir)', 'lsl.dll'))"
-          Condition="Exists('$(_BundledCliLslSource)')" />
+    <Exec Command="dotnet publish &quot;$(BundledCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --runtime &quot;$(_BundledCliRuntimeIdentifier)&quot; -p:PublishSingleFile=true -p:SelfContained=true --output &quot;$(_BundledCliPublishDir)&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <MakeDir Directories="$(_BundledCliRuntimeNativeDir)" Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)" DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'lsl.dll'))" Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)" DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliRuntimeNativeDir)', 'lsl.dll'))" Condition="Exists('$(_BundledCliLslSource)')" />
   </Target>
 
 </Project>

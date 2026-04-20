@@ -5,27 +5,37 @@ using System.Net;
 using System.Net.Sockets;
 using DopeCompanion.Core.Models;
 using DopeCompanion.Core.Services;
+using OpenCvSharp;
 
 namespace DopeCompanion.App;
 
 internal sealed class FocusedLayerPreviewService : IDisposable
 {
-    private static readonly byte[] StreamMagic = [(byte)'D', (byte)'L', (byte)'Y', (byte)'R'];
+    private static readonly byte[] LegacyStreamMagic = [(byte)'D', (byte)'L', (byte)'Y', (byte)'R'];
+    private static readonly byte[] EncodedStreamMagic = [(byte)'D', (byte)'L', (byte)'Y', (byte)'2'];
 
     private const int DefaultPort = 38971;
-    private const int HeaderSizeBytes = 28;
+    private const int LegacyHeaderSizeBytes = 28;
+    private const int EncodedHeaderSizeBytes = 36;
     private const int MaximumPayloadBytes = 8 * 1024 * 1024;
+    private const int CodecH264AnnexB = 1;
+    private const int MediaCodecBufferFlagKeyFrame = 1;
+    private const int MediaCodecBufferFlagCodecConfig = 2;
 
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly Func<string, bool, CancellationToken, Task<OperationOutcome>> _configureReverseAsync;
     private readonly string _artifactPath;
     private readonly string _artifactTempPath;
+    private readonly string _h264ArtifactPath;
+    private readonly string _h264ArtifactTempPath;
 
     private CancellationTokenSource? _listenerCancellationTokenSource;
     private TcpListener? _listener;
     private Task? _listenerTask;
     private string _selector = string.Empty;
     private bool _disposed;
+    private byte[]? _latestCodecConfig;
+    private readonly List<EncodedPacket> _currentGopPackets = [];
 
     public FocusedLayerPreviewService(
         int port = DefaultPort,
@@ -37,6 +47,8 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             ? Path.Combine(CompanionOperatorDataLayout.ScreenshotsRootPath, "cast-preview", "focused-layer-preview-latest.png")
             : Path.GetFullPath(artifactPath);
         _artifactTempPath = _artifactPath + ".tmp";
+        _h264ArtifactPath = Path.ChangeExtension(_artifactPath, ".h264");
+        _h264ArtifactTempPath = _h264ArtifactPath + ".tmp";
         _configureReverseAsync = configureReverseAsync ?? ((selector, removeMapping, cancellationToken) =>
             ConfigureReversePortAsync(selector, Port, removeMapping, cancellationToken));
     }
@@ -89,6 +101,8 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                 await StopCoreAsync(removeReverseMapping: true, CancellationToken.None).ConfigureAwait(false);
 
                 _selector = normalizedSelector;
+                _latestCodecConfig = null;
+                _currentGopPackets.Clear();
                 _listenerCancellationTokenSource = new CancellationTokenSource();
                 _listener = new TcpListener(IPAddress.Loopback, Port);
                 _listener.Server.NoDelay = true;
@@ -134,7 +148,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             "Focused layer preview ready.",
             $"Listening on 127.0.0.1:{Port} and confirmed adb reverse for {normalizedSelector}. Waiting for the next Quest frame.",
             Endpoint: normalizedSelector,
-            Items: [_artifactPath]);
+            Items: [_artifactPath, _h264ArtifactPath]);
     }
 
     public async Task<OperationOutcome> StopAsync(CancellationToken cancellationToken = default)
@@ -155,7 +169,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                     OperationOutcomeKind.Preview,
                     "Focused layer preview already stopped.",
                     BuildIdleDetail(),
-                    Items: [_artifactPath]);
+                    Items: [_artifactPath, _h264ArtifactPath]);
             }
 
             var selector = _selector;
@@ -172,7 +186,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                     ? BuildIdleDetail()
                     : $"Stopped listening for direct Quest layer preview frames from {selector}. {BuildIdleDetail()}".Trim(),
                 Endpoint: string.IsNullOrWhiteSpace(selector) ? null : selector,
-                Items: [_artifactPath]);
+                Items: [_artifactPath, _h264ArtifactPath]);
         }
         finally
         {
@@ -301,68 +315,235 @@ internal sealed class FocusedLayerPreviewService : IDisposable
     private async Task ReceiveFramesAsync(TcpClient client, CancellationToken cancellationToken)
     {
         using var stream = client.GetStream();
-        var header = new byte[HeaderSizeBytes];
+        var magic = new byte[4];
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (!await TryReadExactlyAsync(stream, header, cancellationToken).ConfigureAwait(false))
+            if (!await TryReadExactlyAsync(stream, magic, cancellationToken).ConfigureAwait(false))
             {
                 return;
             }
 
-            if (!header.AsSpan(0, StreamMagic.Length).SequenceEqual(StreamMagic))
+            if (magic.AsSpan().SequenceEqual(LegacyStreamMagic))
             {
-                throw new InvalidDataException("Focused layer preview packet magic mismatch.");
+                var remainder = new byte[LegacyHeaderSizeBytes - magic.Length];
+                if (!await TryReadExactlyAsync(stream, remainder, cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                var layerMode = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(0, sizeof(int)));
+                var width = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(4, sizeof(int)));
+                var height = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(8, sizeof(int)));
+                var ticks = BinaryPrimitives.ReadInt64LittleEndian(remainder.AsSpan(12, sizeof(long)));
+                var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(20, sizeof(int)));
+
+                ValidateFrameShape(width, height, payloadLength);
+
+                var payload = GC.AllocateUninitializedArray<byte>(payloadLength);
+                if (!await TryReadExactlyAsync(stream, payload, cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                HandleLegacyPngFrame(layerMode, width, height, ResolveTimestamp(ticks), payload);
+                continue;
             }
 
-            var layerMode = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(4, sizeof(int)));
-            var width = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(8, sizeof(int)));
-            var height = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(12, sizeof(int)));
-            var ticks = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(16, sizeof(long)));
-            var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(24, sizeof(int)));
-            if (width <= 0 || height <= 0)
+            if (magic.AsSpan().SequenceEqual(EncodedStreamMagic))
             {
-                throw new InvalidDataException($"Focused layer preview dimensions were invalid: {width}x{height}.");
+                var remainder = new byte[EncodedHeaderSizeBytes - magic.Length];
+                if (!await TryReadExactlyAsync(stream, remainder, cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                var codec = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(0, sizeof(int)));
+                var layerMode = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(4, sizeof(int)));
+                var width = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(8, sizeof(int)));
+                var height = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(12, sizeof(int)));
+                var ticks = BinaryPrimitives.ReadInt64LittleEndian(remainder.AsSpan(16, sizeof(long)));
+                var flags = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(24, sizeof(int)));
+                var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(remainder.AsSpan(28, sizeof(int)));
+
+                ValidateFrameShape(width, height, payloadLength);
+
+                var payload = GC.AllocateUninitializedArray<byte>(payloadLength);
+                if (!await TryReadExactlyAsync(stream, payload, cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                HandleEncodedFrame(codec, layerMode, width, height, ResolveTimestamp(ticks), flags, payload);
+                continue;
             }
 
-            if (payloadLength <= 0 || payloadLength > MaximumPayloadBytes)
-            {
-                throw new InvalidDataException($"Focused layer preview payload length {payloadLength} was out of range.");
-            }
-
-            var payload = GC.AllocateUninitializedArray<byte>(payloadLength);
-            if (!await TryReadExactlyAsync(stream, payload, cancellationToken).ConfigureAwait(false))
-            {
-                return;
-            }
-
-            WritePreviewArtifact(payload);
-            PublishFrame(
-                layerMode,
-                width,
-                height,
-                ResolveTimestamp(ticks));
+            throw new InvalidDataException("Focused layer preview packet magic mismatch.");
         }
     }
 
-    private static async Task<bool> TryReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken cancellationToken)
+    private static void ValidateFrameShape(int width, int height, int payloadLength)
     {
-        var offset = 0;
-        while (offset < buffer.Length)
+        if (width <= 0 || height <= 0)
         {
-            var bytesRead = await stream.ReadAsync(buffer.AsMemory(offset, buffer.Length - offset), cancellationToken).ConfigureAwait(false);
-            if (bytesRead <= 0)
+            throw new InvalidDataException($"Focused layer preview dimensions were invalid: {width}x{height}.");
+        }
+
+        if (payloadLength <= 0 || payloadLength > MaximumPayloadBytes)
+        {
+            throw new InvalidDataException($"Focused layer preview payload length {payloadLength} was out of range.");
+        }
+    }
+
+    private void HandleLegacyPngFrame(int layerMode, int width, int height, DateTimeOffset receivedAtUtc, byte[] payload)
+    {
+        WriteBinaryArtifact(_artifactPath, _artifactTempPath, payload);
+        PublishFrame(
+            layerMode,
+            width,
+            height,
+            receivedAtUtc,
+            $"Received {width} × {height} direct Quest PNG preview at {receivedAtUtc:HH:mm:ss} UTC on 127.0.0.1:{Port}. Latest frame saved to {_artifactPath}.");
+    }
+
+    private void HandleEncodedFrame(int codec, int layerMode, int width, int height, DateTimeOffset receivedAtUtc, int flags, byte[] payload)
+    {
+        if (codec != CodecH264AnnexB)
+        {
+            SetState(
+                OperationOutcomeKind.Warning,
+                "Focused layer preview codec unsupported.",
+                $"Received codec id {codec} on 127.0.0.1:{Port}, but only H.264 Annex B is currently supported.");
+            return;
+        }
+
+        if ((flags & MediaCodecBufferFlagCodecConfig) != 0)
+        {
+            _latestCodecConfig = payload.ToArray();
+            SetState(
+                LatestFrameReceivedAtUtc is null ? OperationOutcomeKind.Preview : Level,
+                LatestFrameReceivedAtUtc is null ? "Focused layer H.264 stream configured." : Summary,
+                $"Received H.264 codec configuration for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC. Waiting for decodable frames.");
+            return;
+        }
+
+        LatestLayerMode = layerMode;
+        LatestWidth = width;
+        LatestHeight = height;
+        LatestFrameReceivedAtUtc = receivedAtUtc;
+
+        if ((flags & MediaCodecBufferFlagKeyFrame) != 0)
+        {
+            _currentGopPackets.Clear();
+        }
+
+        if (_currentGopPackets.Count == 0 && (flags & MediaCodecBufferFlagKeyFrame) == 0)
+        {
+            SetState(
+                OperationOutcomeKind.Preview,
+                $"{ResolveLayerLabel(layerMode)} H.264 stream waiting for keyframe.",
+                $"Received a dependent H.264 packet before the first keyframe for {ResolveLayerLabel(layerMode)}. Waiting for the next keyframe to rebuild a decodable GOP.");
+            return;
+        }
+
+        _currentGopPackets.Add(new EncodedPacket(flags, payload.ToArray()));
+
+        var artifactBytes = BuildH264Artifact();
+        if (artifactBytes is null || artifactBytes.Length == 0)
+        {
+            SetState(
+                OperationOutcomeKind.Preview,
+                $"{ResolveLayerLabel(layerMode)} H.264 stream live.",
+                $"Received H.264 packet for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the GOP is not decodable yet.");
+            return;
+        }
+
+        WriteBinaryArtifact(_h264ArtifactPath, _h264ArtifactTempPath, artifactBytes);
+        if (!TryDecodeLatestFrameFromH264Artifact(_h264ArtifactPath, out var decodedPng))
+        {
+            SetState(
+                OperationOutcomeKind.Warning,
+                $"{ResolveLayerLabel(layerMode)} H.264 stream live.",
+                $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a preview frame yet. Latest GOP saved to {_h264ArtifactPath}.");
+            return;
+        }
+
+        WriteBinaryArtifact(_artifactPath, _artifactTempPath, decodedPng);
+        PublishFrame(
+            layerMode,
+            width,
+            height,
+            receivedAtUtc,
+            $"Received {width} × {height} direct Quest H.264 preview at {receivedAtUtc:HH:mm:ss} UTC on 127.0.0.1:{Port}. Latest decoded frame saved to {_artifactPath}; latest GOP saved to {_h264ArtifactPath}.");
+    }
+
+    private byte[]? BuildH264Artifact()
+    {
+        if (_latestCodecConfig is null || _latestCodecConfig.Length == 0 || _currentGopPackets.Count == 0)
+        {
+            return null;
+        }
+
+        var totalLength = _latestCodecConfig.Length;
+        foreach (var packet in _currentGopPackets)
+        {
+            totalLength += packet.Payload.Length;
+        }
+
+        var output = new byte[totalLength];
+        var offset = 0;
+        Buffer.BlockCopy(_latestCodecConfig, 0, output, offset, _latestCodecConfig.Length);
+        offset += _latestCodecConfig.Length;
+
+        foreach (var packet in _currentGopPackets)
+        {
+            Buffer.BlockCopy(packet.Payload, 0, output, offset, packet.Payload.Length);
+            offset += packet.Payload.Length;
+        }
+
+        return output;
+    }
+
+    private static bool TryDecodeLatestFrameFromH264Artifact(string artifactPath, out byte[] pngPayload)
+    {
+        pngPayload = Array.Empty<byte>();
+        if (!File.Exists(artifactPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var capture = new VideoCapture(artifactPath, VideoCaptureAPIs.FFMPEG);
+            if (!capture.IsOpened())
             {
                 return false;
             }
 
-            offset += bytesRead;
-        }
+            using var frame = new Mat();
+            using var latestFrame = new Mat();
+            while (capture.Read(frame))
+            {
+                if (!frame.Empty())
+                {
+                    frame.CopyTo(latestFrame);
+                }
+            }
 
-        return true;
+            if (latestFrame.Empty())
+            {
+                return false;
+            }
+
+            return Cv2.ImEncode(".png", latestFrame, out pngPayload);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
-    private void PublishFrame(int layerMode, int width, int height, DateTimeOffset receivedAtUtc)
+    private void PublishFrame(int layerMode, int width, int height, DateTimeOffset receivedAtUtc, string detail)
     {
         LatestLayerMode = layerMode;
         LatestWidth = width;
@@ -372,19 +553,19 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         SetState(
             OperationOutcomeKind.Success,
             $"{ResolveLayerLabel(layerMode)} preview live.",
-            $"Received {width} × {height} direct Quest layer preview at {receivedAtUtc:HH:mm:ss} UTC on 127.0.0.1:{Port}. Latest frame saved to {_artifactPath}.");
+            detail);
     }
 
-    private void WritePreviewArtifact(byte[] payload)
+    private static void WriteBinaryArtifact(string artifactPath, string tempPath, byte[] payload)
     {
-        var directory = Path.GetDirectoryName(_artifactPath);
+        var directory = Path.GetDirectoryName(artifactPath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllBytes(_artifactTempPath, payload);
-        File.Move(_artifactTempPath, _artifactPath, overwrite: true);
+        File.WriteAllBytes(tempPath, payload);
+        File.Move(tempPath, artifactPath, overwrite: true);
     }
 
     private void SetState(OperationOutcomeKind level, string summary, string detail)
@@ -406,6 +587,23 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         {
             throw new ObjectDisposedException(nameof(FocusedLayerPreviewService));
         }
+    }
+
+    private static async Task<bool> TryReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken cancellationToken)
+    {
+        var offset = 0;
+        while (offset < buffer.Length)
+        {
+            var bytesRead = await stream.ReadAsync(buffer.AsMemory(offset, buffer.Length - offset), cancellationToken).ConfigureAwait(false);
+            if (bytesRead <= 0)
+            {
+                return false;
+            }
+
+            offset += bytesRead;
+        }
+
+        return true;
     }
 
     private static DateTimeOffset ResolveTimestamp(long ticks)
@@ -559,4 +757,6 @@ internal sealed class FocusedLayerPreviewService : IDisposable
 
         return null;
     }
+
+    private sealed record EncodedPacket(int Flags, byte[] Payload);
 }
