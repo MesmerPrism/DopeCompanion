@@ -241,6 +241,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private WindowLayoutBounds? _liveSessionCastPreferredOverlayBounds;
     private int _preferredCompanionActivationGeneration;
     private bool _liveSessionCastStopInProgress;
+    private bool _lastFocusedLayerPreviewRunning;
 
     public MainWindowViewModel()
     {
@@ -3770,12 +3771,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         if (IsLiveSessionCastRenderViewMode)
         {
             LiveSessionCastLevel = _focusedLayerPreviewService.Level;
-            LiveSessionCastSummary = _focusedLayerPreviewService.IsRunning
-                ? _focusedLayerPreviewService.Summary
-                : "Render View idle.";
-            LiveSessionCastDetail = _focusedLayerPreviewService.IsRunning
-                ? $"{_focusedLayerPreviewService.Detail} scrcpy stays off while Render View is the main surface.".Trim()
-                : "Start Render View to listen for the direct Quest layer stream without launching scrcpy.";
+            LiveSessionCastSummary = BuildLiveSessionCastRenderViewSummary();
+            LiveSessionCastDetail = BuildLiveSessionCastRenderViewDetail();
         }
         else
         {
@@ -3792,8 +3789,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private void RefreshLiveSessionCastFocusedLayerPreviewState()
     {
         LiveSessionCastFocusedLayerPreviewLevel = _focusedLayerPreviewService.Level;
-        LiveSessionCastFocusedLayerPreviewSummary = _focusedLayerPreviewService.Summary;
-        LiveSessionCastFocusedLayerPreviewDetail = _focusedLayerPreviewService.Detail;
+        LiveSessionCastFocusedLayerPreviewSummary = BuildLiveSessionCastFocusedLayerPreviewSummary();
+        LiveSessionCastFocusedLayerPreviewDetail = BuildLiveSessionCastFocusedLayerPreviewDetail();
         LiveSessionCastFocusedLayerPreviewImage = LoadQuestScreenshotPreview(
             _focusedLayerPreviewService.LatestImageBytes,
             _focusedLayerPreviewService.LatestArtifactPath);
@@ -3807,6 +3804,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RefreshLiveSessionCastFocusedLayerPreviewState();
         var castRunning = _questDisplayCastService.IsRunning;
         var previewRunning = _focusedLayerPreviewService.IsRunning;
+        _lastFocusedLayerPreviewRunning = previewRunning;
 
         if (_liveSessionCastStopInProgress)
         {
@@ -5555,8 +5553,124 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void OnFocusedLayerPreviewStateChanged(object? sender, EventArgs e)
     {
-        _ = _dispatcher.InvokeAsync(SyncLiveSessionCastSurface);
+        _ = _dispatcher.InvokeAsync(() =>
+        {
+            var previewRunning = _focusedLayerPreviewService.IsRunning;
+            var previewRunningChanged = previewRunning != _lastFocusedLayerPreviewRunning;
+            _lastFocusedLayerPreviewRunning = previewRunning;
+
+            RefreshLiveSessionCastFocusedLayerPreviewState();
+            if (NeedsRenderViewSurfaceStateRefresh())
+            {
+                RefreshLiveSessionCastState();
+            }
+
+            if (_liveSessionCastStopInProgress)
+            {
+                CloseLiveSessionCastOverlayWindow(requestActivation: false);
+                if (!previewRunning && !_questDisplayCastService.IsRunning)
+                {
+                    _liveSessionCastStopInProgress = false;
+                }
+
+                return;
+            }
+
+            var needsRenderViewOverlayRecovery = IsLiveSessionCastRenderViewMode &&
+                previewRunning &&
+                _liveSessionCastOverlayWindow is not { IsLoaded: true };
+            if (!previewRunningChanged && !needsRenderViewOverlayRecovery)
+            {
+                return;
+            }
+
+            if (IsLiveSessionCastRenderViewMode)
+            {
+                if (previewRunning || _questDisplayCastService.IsRunning)
+                {
+                    EnsureLiveSessionCastOverlayWindow();
+                }
+                else
+                {
+                    CloseLiveSessionCastOverlayWindow(requestActivation: false);
+                }
+
+                return;
+            }
+
+            if (!previewRunning && !_questDisplayCastService.IsRunning)
+            {
+                CloseLiveSessionCastOverlayWindow(requestActivation: false);
+            }
+        });
     }
+
+    private bool NeedsRenderViewSurfaceStateRefresh()
+    {
+        if (!IsLiveSessionCastRenderViewMode)
+        {
+            return false;
+        }
+
+        var expectedLevel = _focusedLayerPreviewService.Level;
+        var expectedSummary = BuildLiveSessionCastRenderViewSummary();
+        var expectedDetail = BuildLiveSessionCastRenderViewDetail();
+
+        return LiveSessionCastLevel != expectedLevel ||
+               !string.Equals(LiveSessionCastSummary, expectedSummary, StringComparison.Ordinal) ||
+               !string.Equals(LiveSessionCastDetail, expectedDetail, StringComparison.Ordinal);
+    }
+
+    private string BuildLiveSessionCastRenderViewSummary()
+        => _focusedLayerPreviewService.IsRunning
+            ? BuildLiveSessionCastFocusedLayerPreviewSummary()
+            : "Render View idle.";
+
+    private string BuildLiveSessionCastRenderViewDetail()
+        => _focusedLayerPreviewService.IsRunning
+            ? $"{BuildLiveSessionCastFocusedLayerPreviewDetail()} scrcpy stays off while Render View is the main surface.".Trim()
+            : "Start Render View to listen for the direct Quest layer stream without launching scrcpy.";
+
+    private string BuildLiveSessionCastFocusedLayerPreviewSummary()
+    {
+        if (!_focusedLayerPreviewService.IsRunning)
+        {
+            return "Render View idle.";
+        }
+
+        if (_focusedLayerPreviewService.LatestImageBytes is { Length: > 0 })
+        {
+            return $"{ResolveLatestFocusedLayerPreviewLabel()} Render View live.";
+        }
+
+        return _focusedLayerPreviewService.Summary;
+    }
+
+    private string BuildLiveSessionCastFocusedLayerPreviewDetail()
+    {
+        if (!_focusedLayerPreviewService.IsRunning)
+        {
+            return "Start the cast surface to listen for direct Quest render-view frames.";
+        }
+
+        if (_focusedLayerPreviewService.LatestImageBytes is not { Length: > 0 })
+        {
+            return _focusedLayerPreviewService.Detail;
+        }
+
+        var artifactPath = NormalizeHostVisibleOperatorPath(_focusedLayerPreviewService.LatestArtifactPath);
+        var frameSizeLabel = _focusedLayerPreviewService.LatestWidth > 0 && _focusedLayerPreviewService.LatestHeight > 0
+            ? $"{_focusedLayerPreviewService.LatestWidth} x {_focusedLayerPreviewService.LatestHeight}"
+            : "latest available size";
+        return string.IsNullOrWhiteSpace(artifactPath)
+            ? $"Direct Quest Render View preview is streaming on 127.0.0.1:{_focusedLayerPreviewService.Port} at {frameSizeLabel}."
+            : $"Direct Quest Render View preview is streaming on 127.0.0.1:{_focusedLayerPreviewService.Port} at {frameSizeLabel}. Latest frame saved to {artifactPath}.";
+    }
+
+    private string ResolveLatestFocusedLayerPreviewLabel()
+        => _focusedLayerPreviewService.LatestLayerMode < 0
+            ? "Render View"
+            : ResolveLiveSessionCastFocusLayerLabel(_focusedLayerPreviewService.LatestLayerMode.ToString(CultureInfo.InvariantCulture));
 
     private void OnTwinRefreshTimerTick(object? sender, EventArgs e)
     {

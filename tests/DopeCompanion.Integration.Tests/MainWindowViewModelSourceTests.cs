@@ -99,4 +99,38 @@ public sealed class MainWindowViewModelSourceTests
         Assert.Contains("var castOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);", source, StringComparison.Ordinal);
         Assert.Contains("var previewOutcome = await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);", source, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Focused_layer_preview_updates_do_not_run_full_surface_sync_or_relayout_the_render_view_shell_each_frame()
+    {
+        var sourcePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "src",
+            "DopeCompanion.App",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+
+        var source = await File.ReadAllTextAsync(Path.GetFullPath(sourcePath));
+        var handlerStart = source.IndexOf(
+            "private void OnFocusedLayerPreviewStateChanged(object? sender, EventArgs e)",
+            StringComparison.Ordinal);
+        var nextMethodStart = source.IndexOf(
+            "private bool NeedsRenderViewSurfaceStateRefresh()",
+            handlerStart,
+            StringComparison.Ordinal);
+        Assert.True(handlerStart >= 0 && nextMethodStart > handlerStart, "Could not isolate OnFocusedLayerPreviewStateChanged in MainWindowViewModel.cs.");
+        var handlerSource = source[handlerStart..nextMethodStart];
+
+        Assert.Contains("private void OnFocusedLayerPreviewStateChanged(object? sender, EventArgs e)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_dispatcher.InvokeAsync(SyncLiveSessionCastSurface);", handlerSource, StringComparison.Ordinal);
+        Assert.Contains("RefreshLiveSessionCastFocusedLayerPreviewState();", handlerSource, StringComparison.Ordinal);
+        Assert.Contains("NeedsRenderViewSurfaceStateRefresh()", handlerSource, StringComparison.Ordinal);
+        Assert.Contains("BuildLiveSessionCastFocusedLayerPreviewSummary()", source, StringComparison.Ordinal);
+        Assert.Contains("BuildLiveSessionCastFocusedLayerPreviewDetail()", source, StringComparison.Ordinal);
+    }
 }
