@@ -3,11 +3,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
+using System.Threading;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media.Imaging;
-using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using DopeCompanion.App;
@@ -240,6 +239,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private FullDiagnosticHarnessWindowViewModel? _fullDiagnosticHarnessWindowViewModel;
     private DisplayCastOverlayWindow? _liveSessionCastOverlayWindow;
     private WindowLayoutBounds? _liveSessionCastPreferredOverlayBounds;
+    private int _preferredCompanionActivationGeneration;
+    private bool _liveSessionCastStopInProgress;
 
     public MainWindowViewModel()
     {
@@ -3199,19 +3200,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return _fullDiagnosticHarnessWindowViewModel;
         }
 
-        var owner = Application.Current?.Windows
-            .OfType<Window>()
-            .FirstOrDefault(window => window.IsActive)
-            ?? Application.Current?.MainWindow;
-
-        var window = new FullDiagnosticHarnessWindow(_fullDiagnosticHarnessWindowViewModel)
-        {
-            Owner = owner
-        };
-        window.Closed += OnFullDiagnosticHarnessWindowClosed;
-        _fullDiagnosticHarnessWindow = window;
-        window.Show();
-        window.Activate();
+            var window = new FullDiagnosticHarnessWindow(_fullDiagnosticHarnessWindowViewModel);
+            window.Closed += OnFullDiagnosticHarnessWindowClosed;
+            _fullDiagnosticHarnessWindow = window;
+            window.Show();
+            window.Activate();
         return _fullDiagnosticHarnessWindowViewModel;
     }
 
@@ -3267,28 +3260,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             if (_liveSessionWindow is { IsLoaded: true })
             {
-                if (_liveSessionWindow.WindowState == WindowState.Minimized)
-                {
-                    _liveSessionWindow.WindowState = WindowState.Normal;
-                }
-
-                _liveSessionWindow.Activate();
+                _ = CompanionWindowActivationHelper.ActivateWindow(_liveSessionWindow);
                 return;
             }
 
-            var owner = Application.Current?.Windows
-                .OfType<Window>()
-                .FirstOrDefault(window => window.IsActive)
-                ?? Application.Current?.MainWindow;
-
-            var window = new LiveSessionWindow(this)
-            {
-                Owner = owner
-            };
+            var window = new LiveSessionWindow(this);
             window.Closed += OnLiveSessionWindowClosed;
             _liveSessionWindow = window;
             window.Show();
-            window.Activate();
+            _ = CompanionWindowActivationHelper.ActivateWindow(window);
         }).ConfigureAwait(false);
 
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
@@ -3360,49 +3340,68 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (CompanionWindowActivationHelper.ActivateWindow(targetWindow))
+        {
+            return;
+        }
+
         try
         {
-            if (targetWindow.WindowState == WindowState.Minimized)
-            {
-                targetWindow.WindowState = WindowState.Normal;
-            }
-
-            targetWindow.Activate();
-            targetWindow.Focus();
-            if (!TryPromoteWindowToForeground(targetWindow))
-            {
-                var previousTopmost = targetWindow.Topmost;
-                targetWindow.Topmost = true;
-                targetWindow.Topmost = previousTopmost;
-                targetWindow.Activate();
-                targetWindow.Focus();
-                _ = TryPromoteWindowToForeground(targetWindow);
-            }
+            var previousTopmost = targetWindow.Topmost;
+            targetWindow.Topmost = true;
+            targetWindow.Topmost = previousTopmost;
         }
         catch (InvalidOperationException)
         {
         }
+
+        _ = CompanionWindowActivationHelper.ActivateWindow(targetWindow);
     }
 
-    private static bool TryPromoteWindowToForeground(Window targetWindow)
+    private void RequestPreferredCompanionWindowActivation()
     {
-        var handle = new WindowInteropHelper(targetWindow).Handle;
-        if (handle == 0)
-        {
-            return false;
-        }
+        var generation = Interlocked.Increment(ref _preferredCompanionActivationGeneration);
+        SchedulePreferredCompanionWindowActivation(generation, TimeSpan.Zero);
+        SchedulePreferredCompanionWindowActivation(generation, TimeSpan.FromMilliseconds(120));
+        SchedulePreferredCompanionWindowActivation(generation, TimeSpan.FromMilliseconds(360));
+    }
 
-        if (CompanionWindowNativeMethods.IsIconic(handle))
-        {
-            CompanionWindowNativeMethods.ShowWindow(handle, CompanionWindowNativeMethods.SwRestore);
-        }
-        else
-        {
-            CompanionWindowNativeMethods.ShowWindow(handle, CompanionWindowNativeMethods.SwShow);
-        }
+    private void SchedulePreferredCompanionWindowActivation(int generation, TimeSpan delay)
+        => _ = ActivatePreferredCompanionWindowAsync(generation, delay);
 
-        CompanionWindowNativeMethods.BringWindowToTop(handle);
-        return CompanionWindowNativeMethods.SetForegroundWindow(handle);
+    private async Task ActivatePreferredCompanionWindowAsync(int generation, TimeSpan delay)
+    {
+        try
+        {
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay).ConfigureAwait(false);
+            }
+
+            if (generation != Volatile.Read(ref _preferredCompanionActivationGeneration))
+            {
+                return;
+            }
+
+            await _dispatcher.InvokeAsync(() =>
+            {
+                if (generation != Volatile.Read(ref _preferredCompanionActivationGeneration))
+                {
+                    return;
+                }
+
+                ActivatePreferredCompanionWindow();
+            }, DispatcherPriority.ApplicationIdle).Task.ConfigureAwait(false);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (TaskSchedulerException)
+        {
+        }
     }
 
     private void OnLiveSessionCastOverlayWindowClosed(object? sender, EventArgs e)
@@ -3418,10 +3417,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _liveSessionCastOverlayWindow = null;
         }
 
-        ActivatePreferredCompanionWindow();
+        CompanionWindowActivationHelper.DismissKnownBlockingShellOverlays();
+        RequestPreferredCompanionWindowActivation();
     }
 
     private void CloseLiveSessionCastOverlayWindow()
+        => CloseLiveSessionCastOverlayWindow(requestActivation: true);
+
+    private void CloseLiveSessionCastOverlayWindow(bool requestActivation)
     {
         if (_liveSessionCastOverlayWindow is null)
         {
@@ -3436,7 +3439,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _liveSessionCastOverlayWindow.Closed -= OnLiveSessionCastOverlayWindowClosed;
         _liveSessionCastOverlayWindow.Close();
         _liveSessionCastOverlayWindow = null;
-        ActivatePreferredCompanionWindow();
+        if (requestActivation)
+        {
+            RequestPreferredCompanionWindowActivation();
+        }
     }
 
     private async Task ToggleLiveSessionProximityAsync()
@@ -3451,6 +3457,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private async Task StartLiveSessionCastAsync()
     {
+        _liveSessionCastStopInProgress = false;
         var selector = ResolveDisplayCastSelector();
         var outcome = await StartSelectedLiveSessionCastSurfaceAsync(selector).ConfigureAwait(false);
         await ApplyOutcomeAsync(
@@ -3461,17 +3468,25 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private async Task StopLiveSessionCastAsync()
     {
+        await DispatchAsync(() =>
+        {
+            _liveSessionCastStopInProgress = true;
+            CloseLiveSessionCastOverlayWindow(requestActivation: false);
+        }).ConfigureAwait(false);
+
         var castOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
         var previewOutcome = await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);
         await ApplyOutcomeAsync(
             "Stop Display 0 Cast",
             CombineLiveSessionCastOutcomes(castOutcome, previewOutcome)).ConfigureAwait(false);
         await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
-        await DispatchAsync(ActivatePreferredCompanionWindow).ConfigureAwait(false);
+        CompanionWindowActivationHelper.DismissKnownBlockingShellOverlays();
+        RequestPreferredCompanionWindowActivation();
     }
 
     private async Task RestartLiveSessionCastAsync()
     {
+        _liveSessionCastStopInProgress = false;
         var selector = ResolveDisplayCastSelector();
         var stopCastOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
         var stopPreviewOutcome = await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);
@@ -3790,9 +3805,23 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         RefreshLiveSessionCastState();
         RefreshLiveSessionCastFocusedLayerPreviewState();
+        var castRunning = _questDisplayCastService.IsRunning;
+        var previewRunning = _focusedLayerPreviewService.IsRunning;
+
+        if (_liveSessionCastStopInProgress)
+        {
+            CloseLiveSessionCastOverlayWindow(requestActivation: false);
+            if (!castRunning && !previewRunning)
+            {
+                _liveSessionCastStopInProgress = false;
+            }
+
+            return;
+        }
+
         if (IsLiveSessionCastRenderViewMode)
         {
-            if (_focusedLayerPreviewService.IsRunning || _questDisplayCastService.IsRunning)
+            if (previewRunning || castRunning)
             {
                 EnsureLiveSessionCastOverlayWindow();
                 return;
@@ -3802,14 +3831,22 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_questDisplayCastService.IsRunning)
+        if (castRunning)
         {
-            _ = EnsureLiveSessionCastFocusedLayerPreviewAsync();
+            if (!previewRunning)
+            {
+                _ = EnsureLiveSessionCastFocusedLayerPreviewAsync();
+            }
+
             EnsureLiveSessionCastOverlayWindow();
             return;
         }
 
-        _ = StopLiveSessionCastFocusedLayerPreviewAsync();
+        if (previewRunning)
+        {
+            _ = StopLiveSessionCastFocusedLayerPreviewAsync();
+        }
+
         CloseLiveSessionCastOverlayWindow();
     }
 
@@ -6342,28 +6379,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     public sealed record ActionChoice<T>(string Label, string Description, T Value);
-
-    private static class CompanionWindowNativeMethods
-    {
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool IsIconic(nint windowHandle);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool BringWindowToTop(nint windowHandle);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetForegroundWindow(nint windowHandle);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool ShowWindow(nint windowHandle, int command);
-
-        public const int SwShow = 5;
-        public const int SwRestore = 9;
-    }
 
     private sealed record LiveSessionCastSurfaceModeDefinition(string Value, string Label, string Description);
 

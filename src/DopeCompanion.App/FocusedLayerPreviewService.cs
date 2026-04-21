@@ -28,15 +28,20 @@ internal sealed class FocusedLayerPreviewService : IDisposable
     private readonly string _artifactTempPath;
     private readonly string _h264ArtifactPath;
     private readonly string _h264ArtifactTempPath;
+    private readonly SemaphoreSlim _decodeSignal = new(0);
+    private readonly object _decodeSync = new();
 
     private CancellationTokenSource? _listenerCancellationTokenSource;
+    private CancellationTokenSource? _decodeCancellationTokenSource;
     private TcpListener? _listener;
     private Task? _listenerTask;
+    private Task? _decodeTask;
     private string _selector = string.Empty;
     private bool _disposed;
     private byte[]? _latestImageBytes;
     private byte[]? _latestCodecConfig;
     private readonly List<EncodedPacket> _currentGopPackets = [];
+    private DecodeRequest? _pendingDecodeRequest;
 
     public FocusedLayerPreviewService(
         int port = DefaultPort,
@@ -120,6 +125,9 @@ internal sealed class FocusedLayerPreviewService : IDisposable
                 _listener.Server.NoDelay = true;
                 _listener.Start();
                 _listenerTask = Task.Run(() => ListenLoopAsync(_listener, _listenerCancellationTokenSource.Token));
+                DrainSignal(_decodeSignal);
+                _decodeCancellationTokenSource = new CancellationTokenSource();
+                _decodeTask = Task.Run(() => ProcessDecodeLoopAsync(_decodeCancellationTokenSource.Token));
 
                 SetState(
                     OperationOutcomeKind.Preview,
@@ -223,6 +231,7 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         }
 
         _lifecycleGate.Dispose();
+        _decodeSignal.Dispose();
     }
 
     private async Task StopCoreAsync(bool removeReverseMapping, CancellationToken cancellationToken)
@@ -230,16 +239,27 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         var selector = _selector;
         var listenerTask = _listenerTask;
         var listener = _listener;
-        var cancellationSource = _listenerCancellationTokenSource;
+        var listenerCancellationSource = _listenerCancellationTokenSource;
+        var decodeTask = _decodeTask;
+        var decodeCancellationSource = _decodeCancellationTokenSource;
 
         _listenerTask = null;
         _listener = null;
         _listenerCancellationTokenSource = null;
+        _decodeTask = null;
+        _decodeCancellationTokenSource = null;
         _selector = string.Empty;
+        ClearPendingDecodeRequest();
 
-        if (cancellationSource is not null)
+        if (listenerCancellationSource is not null)
         {
-            cancellationSource.Cancel();
+            listenerCancellationSource.Cancel();
+        }
+
+        if (decodeCancellationSource is not null)
+        {
+            decodeCancellationSource.Cancel();
+            TryReleaseDecodeSignal();
         }
 
         try
@@ -264,7 +284,24 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             }
         }
 
-        cancellationSource?.Dispose();
+        listenerCancellationSource?.Dispose();
+
+        if (decodeTask is not null)
+        {
+            try
+            {
+                await decodeTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        decodeCancellationSource?.Dispose();
+        DrainSignal(_decodeSignal);
 
         if (removeReverseMapping && !string.IsNullOrWhiteSpace(selector))
         {
@@ -474,26 +511,19 @@ internal sealed class FocusedLayerPreviewService : IDisposable
             return;
         }
 
-        WriteBinaryArtifact(_h264ArtifactPath, _h264ArtifactTempPath, artifactBytes);
-        if (!TryDecodeLatestFrameFromH264Artifact(_h264ArtifactPath, out var decodedPng))
-        {
-            SetState(
-                LatestDecodedFrameAtUtc is null ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success,
-                $"{ResolveLayerLabel(layerMode)} H.264 stream live.",
-                LatestDecodedFrameAtUtc is null
-                    ? $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a preview frame yet. Latest GOP saved to {_h264ArtifactPath}."
-                    : $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a fresh preview frame yet. Showing the last decoded frame from {LatestDecodedFrameAtUtc:HH:mm:ss} UTC; latest GOP saved to {_h264ArtifactPath}.");
-            return;
-        }
-
-        WriteBinaryArtifact(_artifactPath, _artifactTempPath, decodedPng);
-        PublishFrame(
+        QueueDecodeRequest(new DecodeRequest(
             layerMode,
             width,
             height,
             receivedAtUtc,
-            decodedPng,
-            $"Received {width} × {height} direct Quest H.264 preview at {receivedAtUtc:HH:mm:ss} UTC on 127.0.0.1:{Port}. Latest decoded frame saved to {_artifactPath}; latest GOP saved to {_h264ArtifactPath}.");
+            artifactBytes));
+
+        SetState(
+            LatestDecodedFrameAtUtc is null ? OperationOutcomeKind.Preview : OperationOutcomeKind.Success,
+            $"{ResolveLayerLabel(layerMode)} H.264 stream live.",
+            LatestDecodedFrameAtUtc is null
+                ? $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC. The desktop decoder is processing the latest preview frame."
+                : $"Received {artifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(layerMode)} at {receivedAtUtc:HH:mm:ss} UTC. The desktop decoder is processing the latest preview frame while showing the last decoded frame from {LatestDecodedFrameAtUtc:HH:mm:ss} UTC.");
     }
 
     private byte[]? BuildH264Artifact()
@@ -521,6 +551,111 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         }
 
         return output;
+    }
+
+    private void QueueDecodeRequest(DecodeRequest request)
+    {
+        lock (_decodeSync)
+        {
+            _pendingDecodeRequest = request;
+        }
+
+        TryReleaseDecodeSignal();
+    }
+
+    private async Task ProcessDecodeLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                await _decodeSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+                var request = TakePendingDecodeRequest();
+                while (_decodeSignal.Wait(0))
+                {
+                    var newerRequest = TakePendingDecodeRequest();
+                    if (newerRequest is not null)
+                    {
+                        request = newerRequest;
+                    }
+                }
+
+                if (request is null)
+                {
+                    continue;
+                }
+
+                ProcessDecodeRequest(request);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void ProcessDecodeRequest(DecodeRequest request)
+    {
+        WriteBinaryArtifact(_h264ArtifactPath, _h264ArtifactTempPath, request.H264ArtifactBytes);
+
+        var stopwatch = Stopwatch.StartNew();
+        if (!TryDecodeLatestFrameFromH264Artifact(_h264ArtifactPath, out var decodedPng))
+        {
+            stopwatch.Stop();
+            SetState(
+                LatestDecodedFrameAtUtc is null ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success,
+                $"{ResolveLayerLabel(request.LayerMode)} H.264 stream live.",
+                LatestDecodedFrameAtUtc is null
+                    ? $"Received {request.H264ArtifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(request.LayerMode)} at {request.ReceivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a preview frame after {stopwatch.Elapsed.TotalMilliseconds:0.0} ms. Latest GOP saved to {_h264ArtifactPath}."
+                    : $"Received {request.H264ArtifactBytes.Length:N0}-byte H.264 GOP for {ResolveLayerLabel(request.LayerMode)} at {request.ReceivedAtUtc:HH:mm:ss} UTC, but the desktop decoder could not produce a fresh preview frame after {stopwatch.Elapsed.TotalMilliseconds:0.0} ms. Showing the last decoded frame from {LatestDecodedFrameAtUtc:HH:mm:ss} UTC; latest GOP saved to {_h264ArtifactPath}.");
+            return;
+        }
+
+        stopwatch.Stop();
+        WriteBinaryArtifact(_artifactPath, _artifactTempPath, decodedPng);
+        PublishFrame(
+            request.LayerMode,
+            request.Width,
+            request.Height,
+            request.ReceivedAtUtc,
+            decodedPng,
+            $"Received {request.Width} × {request.Height} direct Quest H.264 preview at {request.ReceivedAtUtc:HH:mm:ss} UTC on 127.0.0.1:{Port}. Desktop decode took {stopwatch.Elapsed.TotalMilliseconds:0.0} ms. Latest decoded frame saved to {_artifactPath}; latest GOP saved to {_h264ArtifactPath}.",
+            DateTimeOffset.UtcNow);
+    }
+
+    private DecodeRequest? TakePendingDecodeRequest()
+    {
+        lock (_decodeSync)
+        {
+            var request = _pendingDecodeRequest;
+            _pendingDecodeRequest = null;
+            return request;
+        }
+    }
+
+    private void ClearPendingDecodeRequest()
+    {
+        lock (_decodeSync)
+        {
+            _pendingDecodeRequest = null;
+        }
+    }
+
+    private void TryReleaseDecodeSignal()
+    {
+        try
+        {
+            _decodeSignal.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+        }
+    }
+
+    private static void DrainSignal(SemaphoreSlim signal)
+    {
+        while (signal.Wait(0))
+        {
+        }
     }
 
     private static bool TryDecodeLatestFrameFromH264Artifact(string artifactPath, out byte[] pngPayload)
@@ -563,13 +698,20 @@ internal sealed class FocusedLayerPreviewService : IDisposable
         }
     }
 
-    private void PublishFrame(int layerMode, int width, int height, DateTimeOffset receivedAtUtc, byte[] imageBytes, string detail)
+    private void PublishFrame(
+        int layerMode,
+        int width,
+        int height,
+        DateTimeOffset receivedAtUtc,
+        byte[] imageBytes,
+        string detail,
+        DateTimeOffset? decodedAtUtc = null)
     {
         LatestLayerMode = layerMode;
         LatestWidth = width;
         LatestHeight = height;
         LatestFrameReceivedAtUtc = receivedAtUtc;
-        LatestDecodedFrameAtUtc = receivedAtUtc;
+        LatestDecodedFrameAtUtc = decodedAtUtc ?? receivedAtUtc;
         _latestImageBytes = imageBytes.ToArray();
 
         SetState(
@@ -817,4 +959,11 @@ internal sealed class FocusedLayerPreviewService : IDisposable
     }
 
     private sealed record EncodedPacket(int Flags, byte[] Payload);
+
+    private sealed record DecodeRequest(
+        int LayerMode,
+        int Width,
+        int Height,
+        DateTimeOffset ReceivedAtUtc,
+        byte[] H264ArtifactBytes);
 }

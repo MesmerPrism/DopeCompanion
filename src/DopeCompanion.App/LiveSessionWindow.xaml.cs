@@ -10,5 +10,11 @@ public partial class LiveSessionWindow : Window
         InitializeComponent();
         WindowThemeHelper.Attach(this);
         DataContext = viewModel;
+        Closed += OnClosed;
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        Closed -= OnClosed;
     }
 }

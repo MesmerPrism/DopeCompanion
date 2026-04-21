@@ -496,17 +496,7 @@ internal sealed class QuestDisplayCastService : IDisposable
             return;
         }
 
-        if (NativeMethods.IsIconic(_windowHandle))
-        {
-            NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwRestore);
-        }
-        else
-        {
-            NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwShow);
-        }
-
-        NativeMethods.BringWindowToTop(_windowHandle);
-        NativeMethods.SetForegroundWindow(_windowHandle);
+        _ = CompanionWindowActivationHelper.PromoteHandleToForeground(_windowHandle);
     }
 
     private static IReadOnlyList<string> BuildArguments(string selector, WindowLayoutBounds? initialWindowBounds)

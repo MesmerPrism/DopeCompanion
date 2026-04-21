@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -30,6 +31,7 @@ internal partial class DisplayCastOverlayWindow : Window
     private bool _isResizingWithGrip;
     private bool _refreshChromeAfterReload;
     private bool _chromeRefreshQueued;
+    private int _foregroundActivationGeneration;
     private WindowLayoutBounds? _restoreBounds;
     private nint _windowHandle;
     private nint _ownedCastHandle;
@@ -121,10 +123,16 @@ internal partial class DisplayCastOverlayWindow : Window
         UpdateWindowState();
         SyncToCastWindow();
         _followTimer.Start();
+        CompanionWindowActivationHelper.DismissKnownBlockingShellOverlays();
+        if (IsRenderViewMode || _createdForRenderViewMode)
+        {
+            QueueOverlayActivation();
+        }
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        Interlocked.Increment(ref _foregroundActivationGeneration);
         _followTimer.Stop();
         SourceInitialized -= OnSourceInitialized;
         Loaded -= OnLoaded;
@@ -194,6 +202,7 @@ internal partial class DisplayCastOverlayWindow : Window
         UpdateWindowState(ConvertDipBoundsToDevicePixels(overlayBounds));
         if (!IsVisible)
         {
+            CompanionWindowActivationHelper.DismissKnownBlockingShellOverlays();
             Show();
         }
 
@@ -228,7 +237,7 @@ internal partial class DisplayCastOverlayWindow : Window
         UpdateWindowState(ConvertDipBoundsToDevicePixels(GetCurrentOverlayBounds()));
         if (shouldActivate)
         {
-            ActivateOverlayWindow();
+            QueueOverlayActivation();
         }
     }
 
@@ -485,7 +494,14 @@ internal partial class DisplayCastOverlayWindow : Window
 
     private void OnStopWindowClicked(object sender, RoutedEventArgs e)
     {
-        ActivateOverlayWindow();
+        Interlocked.Increment(ref _foregroundActivationGeneration);
+        ClearOwner();
+
+        if (IsVisible)
+        {
+            Hide();
+        }
+
         if (_stopCastCommand.CanExecute(null))
         {
             _stopCastCommand.Execute(null);
@@ -516,6 +532,8 @@ internal partial class DisplayCastOverlayWindow : Window
     {
         try
         {
+            CompanionWindowActivationHelper.DismissKnownBlockingShellOverlays();
+
             if (!IsVisible)
             {
                 Show();
@@ -528,20 +546,52 @@ internal partial class DisplayCastOverlayWindow : Window
 
             Activate();
             Focus();
-            if (_windowHandle != 0)
+            _ = CompanionWindowActivationHelper.PromoteHandleToForeground(_windowHandle);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private void QueueOverlayActivation()
+    {
+        var generation = Interlocked.Increment(ref _foregroundActivationGeneration);
+        ScheduleOverlayActivation(generation, TimeSpan.Zero);
+        ScheduleOverlayActivation(generation, TimeSpan.FromMilliseconds(120));
+        ScheduleOverlayActivation(generation, TimeSpan.FromMilliseconds(360));
+    }
+
+    private void ScheduleOverlayActivation(int generation, TimeSpan delay)
+        => _ = ActivateOverlayWindowAsync(generation, delay);
+
+    private async Task ActivateOverlayWindowAsync(int generation, TimeSpan delay)
+    {
+        try
+        {
+            if (delay > TimeSpan.Zero)
             {
-                if (NativeMethods.IsIconic(_windowHandle))
+                await Task.Delay(delay).ConfigureAwait(true);
+            }
+
+            if (generation != Volatile.Read(ref _foregroundActivationGeneration) ||
+                !IsLoaded ||
+                Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (generation != Volatile.Read(ref _foregroundActivationGeneration) || !IsLoaded)
                 {
-                    NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwRestore);
-                }
-                else
-                {
-                    NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwShow);
+                    return;
                 }
 
-                NativeMethods.BringWindowToTop(_windowHandle);
-                NativeMethods.SetForegroundWindow(_windowHandle);
-            }
+                ActivateOverlayWindow();
+            }, DispatcherPriority.ApplicationIdle);
+        }
+        catch (TaskCanceledException)
+        {
         }
         catch (InvalidOperationException)
         {

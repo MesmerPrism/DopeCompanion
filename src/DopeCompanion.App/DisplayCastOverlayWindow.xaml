@@ -332,7 +332,6 @@
                         <Button x:Name="StopButton"
                                 Content="Stop"
                                 Style="{StaticResource OverlayHeaderButtonStyle}"
-                                PreviewMouseLeftButtonDown="OnInteractiveControlPreviewMouseLeftButtonDown"
                                 Click="OnStopWindowClicked" />
                     </StackPanel>
 
