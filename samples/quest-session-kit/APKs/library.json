@@ -10,8 +10,30 @@
       "description": "Bundled public DOPE projected-feed multi-layer Colorama runtime. The current public companion mirrors install, launch, device-profile, and scene-profile staging for this APK, and the bundled hotload CSV profiles are consumed directly by the live Unity runtime with startup diagnostics readback.",
       "tags": [
         "dope",
+        "unity",
+        "runtime",
+        "hotload",
+        "streaming",
         "projected-feed",
         "colorama"
+      ]
+    },
+    {
+      "id": "rusty-dope-colorama-feedback-border",
+      "label": "Rusty DOPE Colorama Feedback Border APK",
+      "packageId": "com.tillh.rustydopexr",
+      "apkFile": "RustyDOPE-ColoramaFeedbackBorder.apk",
+      "launchComponent": "com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadApp",
+      "browserPackageId": "com.oculus.browser",
+      "description": "Rust/Makepad OpenXR Colorama feedback-border runtime. The companion can install it and launch it with the required headset-camera permissions and debug.rustydope launch properties, but Unity hotload CSVs, live variable setters, twin readback, and the focused/media streaming controls are not wired for this target yet.",
+      "tags": [
+        "dope",
+        "rust",
+        "makepad",
+        "openxr",
+        "colorama",
+        "feedback-border",
+        "adb-only"
       ]
     }
   ],
@@ -19,9 +41,17 @@
     {
       "id": "dope-public-stack",
       "label": "DOPE Public Stack",
-      "description": "Bundled projected-feed Colorama runtime plus the curated device and scene profile set used by the public DOPE operator app.",
+      "description": "Bundled Unity projected-feed Colorama runtime plus the curated device and scene profile set used by the public DOPE operator app.",
       "appIds": [
         "dope-projected-feed-colorama"
+      ]
+    },
+    {
+      "id": "dope-rust-colorama-stack",
+      "label": "Rusty DOPE Colorama Stack",
+      "description": "Rust/Makepad Colorama feedback-border runtime. Install and launch are supported; Unity runtime-config, live twin, and focused/media streaming controls are intentionally not advertised.",
+      "appIds": [
+        "rusty-dope-colorama-feedback-border"
       ]
     }
   ]

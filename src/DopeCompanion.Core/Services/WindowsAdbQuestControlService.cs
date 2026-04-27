@@ -26,6 +26,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private const string QuestMainActivity = "MainActivity";
     private const string QuestFocusPlaceholderActivity = "FocusPlaceholderActivity";
     private const string DopeExperimentPackage = "com.tillh.dynamicoscillatorypatternentrainment";
+    private const string RustyDopePackage = "com.tillh.rustydopexr";
     private const string QuestSystemUxPackage = "com.oculus.systemux";
     private const string QuestVirtualObjectsActivity = "VirtualObjectsActivity";
     private const string QuestQuickSettingsPackage = "com.oculus.panelapp.settings";
@@ -543,6 +544,12 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             }
         }
 
+        OperationOutcome? rustLaunchPrepOutcome = null;
+        if (string.Equals(target.PackageId, RustyDopePackage, StringComparison.OrdinalIgnoreCase))
+        {
+            rustLaunchPrepOutcome = await PrepareRustyDopeLaunchAsync(selector, target, cancellationToken).ConfigureAwait(false);
+        }
+
         var launchOutcome = await LaunchAppCoreAsync(selector, target, cancellationToken).ConfigureAwait(false);
         if (proximityOutcome is not null)
         {
@@ -554,6 +561,18 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 launchOutcome.PackageId,
                 launchOutcome.Items);
         }
+
+        if (rustLaunchPrepOutcome is not null)
+        {
+            launchOutcome = new OperationOutcome(
+                launchOutcome.Kind,
+                launchOutcome.Summary,
+                $"{rustLaunchPrepOutcome.Summary} {rustLaunchPrepOutcome.Detail} {launchOutcome.Detail}".Trim(),
+                launchOutcome.Endpoint,
+                launchOutcome.PackageId,
+                launchOutcome.Items);
+        }
+
         if (launchOutcome.Kind == OperationOutcomeKind.Failure)
         {
             return MergeWakeWarning(launchOutcome, wakeOutcome);
@@ -566,6 +585,61 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         var kioskOutcome = await EnterKioskModeAsync(selector, target, launchOutcome, cancellationToken).ConfigureAwait(false);
         return MergeWakeWarning(kioskOutcome, wakeOutcome);
+    }
+
+    private async Task<OperationOutcome> PrepareRustyDopeLaunchAsync(
+        string selector,
+        QuestAppTarget target,
+        CancellationToken cancellationToken)
+    {
+        var commands = new (string Label, string Command)[]
+        {
+            ("disable automation", $"am broadcast -a {QuestVrPowerManagerAutomationDisableAction}"),
+            ("keep awake", $"am broadcast -a {QuestVrPowerManagerProxCloseAction}"),
+            ("stop task lock", AdbShellSupport.BuildTaskLockStopCommand()),
+            ("grant scene", $"pm grant {AdbShellSupport.Quote(target.PackageId)} com.oculus.permission.USE_SCENE"),
+            ("grant Horizon scene", $"pm grant {AdbShellSupport.Quote(target.PackageId)} horizonos.permission.USE_SCENE"),
+            ("grant headset camera", $"pm grant {AdbShellSupport.Quote(target.PackageId)} horizonos.permission.HEADSET_CAMERA"),
+            ("grant audio", $"pm grant {AdbShellSupport.Quote(target.PackageId)} android.permission.RECORD_AUDIO"),
+            ("allow media projection", $"appops set {AdbShellSupport.Quote(target.PackageId)} PROJECT_MEDIA allow"),
+            ("render scale", "setprop debug.rustydope.xr_render_scale 0.75"),
+            ("buffer scale", "setprop debug.rustydope.xr_buffer_scale 0.75"),
+            ("multisamples", "setprop debug.rustydope.xr_multisamples 4"),
+            ("foveation", "setprop debug.rustydope.xr_foveation_level 0"),
+            ("scene mode", "setprop debug.rustydope.xr_scene_mode custom_passthrough"),
+            ("dataset capture", "setprop debug.rustydope.xr_capture_dataset_enabled 0"),
+            ("pixel capture", "setprop debug.rustydope.xr_capture_pixels 0"),
+            ("camera pixel capture", "setprop debug.rustydope.xr_capture_camera_pixels 0"),
+            ("depth capture", "setprop debug.rustydope.xr_capture_depth 0"),
+            ("capture mode", "setprop debug.rustydope.xr_capture_mode feedback_mode")
+        };
+
+        var applied = new List<string>();
+        var warnings = new List<string>();
+
+        foreach (var (label, command) in commands)
+        {
+            var result = await RunShellAsync(selector, command, cancellationToken).ConfigureAwait(false);
+            if (result.ExitCode == 0)
+            {
+                applied.Add(label);
+                continue;
+            }
+
+            warnings.Add($"{label}: {AdbShellSupport.Collapse(result.CombinedOutput)}");
+        }
+
+        return warnings.Count == 0
+            ? Success(
+                $"Prepared {target.Label} launch prerequisites.",
+                $"Applied {applied.Count} Rusty-DOPE permission/property steps.",
+                packageId: target.PackageId)
+            : new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"Prepared {target.Label} launch prerequisites with warnings.",
+                $"Applied {applied.Count} Rusty-DOPE permission/property steps. Warnings: {string.Join(" ", warnings)}",
+                PackageId: target.PackageId,
+                Items: applied.Concat(warnings).ToArray());
     }
 
     private async Task<OperationOutcome?> GuardLaunchAgainstUnsafeHeadsetStateAsync(

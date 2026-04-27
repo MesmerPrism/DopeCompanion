@@ -51,7 +51,7 @@ The bundled profile CSVs are stored in:
 
 ## Important Boundary
 
-The current public repo now ships a working bundled profile path for the
+The current public repo ships a working bundled profile path for the Unity
 multilayer Colorama APK: the Quest runtime consumes the staged CSV from
 `runtime_hotload/runtime_overrides.csv` and reports the applied profile in
 startup diagnostics.
@@ -59,3 +59,10 @@ startup diagnostics.
 The future `quest_twin_*` / `quest_hotload_config` LSL lane is still a
 separate transport contract. Treat bundled profile staging as the verified
 public baseline and LSL twin-state mirroring as an additional bridge lane.
+
+The Rusty DOPE Colorama feedback-border APK is listed in the same Quest
+library, but it does not consume these Unity CSV profiles yet. For that target,
+the companion currently supports install, launch, Rusty-DOPE permission grants,
+and `debug.rustydope.*` startup properties only; live variable setters,
+runtime-config hotload, twin readback, and focused/media streaming are future
+work.

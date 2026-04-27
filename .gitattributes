@@ -6,5 +6,6 @@
 *.gif binary
 *.ico binary
 *.apk filter=lfs diff=lfs merge=lfs -text
+samples/quest-session-kit/APKs/RustyDOPE-ColoramaFeedbackBorder.apk -filter -diff -merge -text
 *.zip binary
 samples/quest-session-kit/APKs/LslTwin.apk filter=lfs diff=lfs merge=lfs -text

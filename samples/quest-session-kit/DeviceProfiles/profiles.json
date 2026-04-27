@@ -23,6 +23,28 @@
         "debug.oculus.foveation.level": "1",
         "debug.dope.profile": "projected-feed-quality"
       }
+    },
+    {
+      "id": "rusty-dope-colorama-balanced",
+      "label": "Rusty DOPE Colorama Balanced",
+      "description": "Quest profile for the Rust/Makepad Colorama feedback-border build. Mirrors the stable tested launch path: lower XR render/buffer scale, fixed multisampling, no dataset capture, and the custom passthrough scene.",
+      "props": {
+        "debug.oculus.cpuLevel": "4",
+        "debug.oculus.gpuLevel": "4",
+        "debug.oculus.foveation.dynamic": "false",
+        "debug.oculus.foveation.level": "0",
+        "debug.rustydope.xr_render_scale": "0.75",
+        "debug.rustydope.xr_buffer_scale": "0.75",
+        "debug.rustydope.xr_multisamples": "4",
+        "debug.rustydope.xr_foveation_level": "0",
+        "debug.rustydope.xr_scene_mode": "custom_passthrough",
+        "debug.rustydope.xr_capture_dataset_enabled": "0",
+        "debug.rustydope.xr_capture_pixels": "0",
+        "debug.rustydope.xr_capture_camera_pixels": "0",
+        "debug.rustydope.xr_capture_depth": "0",
+        "debug.rustydope.xr_capture_mode": "feedback_mode",
+        "debug.dope.profile": "rusty-dope-colorama-balanced"
+      }
     }
   ]
 }

@@ -10,8 +10,8 @@ surface, plus bundled approved APK payloads. It does not ship the Unity
 project itself.
 
 The current public focus is the projected-feed multi-layer Colorama scene from
-`Assets/Scenes/SynedelicaPassthroughOverlayMultiLayer.unity`. The bundled Quest
-runtime mirror is:
+`Assets/Scenes/SynedelicaPassthroughOverlayMultiLayer.unity`. The primary
+bundled Quest runtime mirror is:
 
 - package id: `com.tillh.dynamicoscillatorypatternentrainment`
 - launch activity:
@@ -19,7 +19,24 @@ runtime mirror is:
 - mirrored APK:
   `samples/quest-session-kit/APKs/DynamicOscillatoryPatternEntrainment-ProjectedFeedColoramaQuad.apk`
 - current bundled SHA256:
-  `5819A09C66131B0597025DED63D00A3CA7ED4450DCF7ECAF98E460EC4F9B45C6`
+  `13C9E6B8E8B8440B45875BBBED09137AD65AA9400AAABA823F731DF447A62E17`
+
+The session kit also includes a Rust/Makepad OpenXR target for the newer
+Colorama feedback-border experiment:
+
+- package id: `com.tillh.rustydopexr`
+- launch activity:
+  `com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadApp`
+- mirrored APK:
+  `samples/quest-session-kit/APKs/RustyDOPE-ColoramaFeedbackBorder.apk`
+- current bundled SHA256:
+  `F603853D0B859EDC0EB6EBAA50AF77AC7527E995AA5BE3A4CC815B0290735AEA`
+
+The Rust target is supported for install and launch from the companion. The
+launcher applies the headset-camera permission and `debug.rustydope.*`
+startup properties used by the tested local run. Unity hotload CSV profiles,
+live variable setters, twin readback, and focused/media streaming controls are
+not wired for the Rust target yet.
 
 The public operator surface follows the same delivery posture proven in
 `DopeCompanion`:
@@ -36,7 +53,8 @@ Current status:
 - the Windows app scaffold is derived from the generic operator shell in
   `DopeCompanion`
 - the bundled session kit now targets the verified hotload-capable DOPE
-  projected-feed Colorama APK
+  projected-feed Colorama APK and an install/launch-only Rusty DOPE Colorama
+  feedback-border APK
 - the runtime-config editor exposes a dedicated `Projected Feed Colorama`
   section with the multi-layer quad controls
 - the bundled scene-profile CSV path is live in the Quest runtime and reports

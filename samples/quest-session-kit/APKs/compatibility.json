@@ -10,6 +10,21 @@
                                   "projected-feed",
                                   "colorama"
                               ]
+                 },
+                 {
+                     "sha256":  "F603853D0B859EDC0EB6EBAA50AF77AC7527E995AA5BE3A4CC815B0290735AEA",
+                     "status":  "compatible",
+                     "label":  "Rusty DOPE Colorama feedback-border build",
+                     "notes":  "Rust/Makepad OpenXR build from Rusty-DOPE. Companion install and launch are supported with Rust-specific Quest permissions and debug.rustydope startup properties; Unity hotload CSVs, live variable setters, twin readback, and focused/media streaming controls are not wired for this target yet.",
+                     "tags":  [
+                                  "dope",
+                                  "rust",
+                                  "makepad",
+                                  "openxr",
+                                  "colorama",
+                                  "feedback-border",
+                                  "adb-only"
+                              ]
                  }
              ]
 }
