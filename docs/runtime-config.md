@@ -40,6 +40,8 @@ The repo currently bundles:
 - `DOPE Projected Feed Colorama Balanced Blur`
 - `DOPE Projected Feed Colorama Quality`
 - `DOPE Projected Feed Colorama Strong Gradient Warp`
+- `Rusty DOPE Feedback Border Baseline`
+- `Rusty DOPE Feedback Border Soft`
 
 The bundled profile CSVs are stored in:
 
@@ -48,6 +50,8 @@ The bundled profile CSVs are stored in:
 - `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-balanced-gradient.csv`
 - `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-quality.csv`
 - `samples/quest-session-kit/HotloadProfiles/dope-projected-feed-colorama-strong-gradient.csv`
+- `samples/quest-session-kit/HotloadProfiles/rusty-dope-colorama-feedback-border-baseline.csv`
+- `samples/quest-session-kit/HotloadProfiles/rusty-dope-colorama-feedback-border-soft.csv`
 
 ## Important Boundary
 
@@ -61,8 +65,11 @@ separate transport contract. Treat bundled profile staging as the verified
 public baseline and LSL twin-state mirroring as an additional bridge lane.
 
 The Rusty DOPE Colorama feedback-border APK is listed in the same Quest
-library, but it does not consume these Unity CSV profiles yet. For that target,
-the companion currently supports install, launch, Rusty-DOPE permission grants,
-and `debug.rustydope.*` startup properties only; live variable setters,
-runtime-config hotload, twin readback, and focused/media streaming are future
-work.
+library. It uses Rust-specific profiles scoped to `com.tillh.rustydopexr`;
+do not reuse the Unity profiles because Rusty DOPE has different full-lens
+overscan and feedback-border defaults. The Companion upload path is the same
+staged CSV file contract. For Rusty DOPE, the CLI stages through `run-as` into
+`/data/user/0/com.tillh.rustydopexr/files/runtime_hotload/runtime_overrides.csv`
+so the Rust app can read the file from its own sandbox; live variable setters,
+twin readback, and focused/media streaming remain future work for the Rust
+target.

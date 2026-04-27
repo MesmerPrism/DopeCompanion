@@ -30,13 +30,14 @@ Colorama feedback-border experiment:
 - mirrored APK:
   `samples/quest-session-kit/APKs/RustyDOPE-ColoramaFeedbackBorder.apk`
 - current bundled SHA256:
-  `F603853D0B859EDC0EB6EBAA50AF77AC7527E995AA5BE3A4CC815B0290735AEA`
+  `14F64F9700E376BC10EC981D875DA0BF96358CD1A830D17FA0B855EB471F9DFB`
 
 The Rust target is supported for install and launch from the companion. The
 launcher applies the headset-camera permission and `debug.rustydope.*`
-startup properties used by the tested local run. Unity hotload CSV profiles,
-live variable setters, twin readback, and focused/media streaming controls are
-not wired for the Rust target yet.
+startup properties used by the tested local run. The session kit also includes
+Rust-specific staged CSV profiles for hotload-capable Rusty DOPE builds. Unity
+hotload profiles, live variable setters, twin readback, and focused/media
+streaming controls are not wired for the Rust target.
 
 The public operator surface follows the same delivery posture proven in
 `DopeCompanion`:
@@ -53,8 +54,8 @@ Current status:
 - the Windows app scaffold is derived from the generic operator shell in
   `DopeCompanion`
 - the bundled session kit now targets the verified hotload-capable DOPE
-  projected-feed Colorama APK and an install/launch-only Rusty DOPE Colorama
-  feedback-border APK
+  projected-feed Colorama APK and a Rusty DOPE Colorama feedback-border APK
+  with install, launch, and Rust-specific staged CSV profile support
 - the runtime-config editor exposes a dedicated `Projected Feed Colorama`
   section with the multi-layer quad controls
 - the bundled scene-profile CSV path is live in the Quest runtime and reports

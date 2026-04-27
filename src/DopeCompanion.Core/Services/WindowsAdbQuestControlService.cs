@@ -381,6 +381,56 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         var remotePaths = BuildRuntimeHotloadRemotePaths(target.PackageId);
 
+        if (remotePaths.UsesRunAsPackageFiles)
+        {
+            var stagingFile = remotePaths.ShellStagingFile
+                ?? $"/data/local/tmp/dope_companion_{SanitizeAdbPathToken(target.PackageId)}_runtime_overrides.csv";
+            var push = await RunAdbAsync(["-s", selector, "push", csvPath, stagingFile], cancellationToken).ConfigureAwait(false);
+            if (push.ExitCode != 0)
+            {
+                return Failure($"ADB push failed for {profile.Label}.", push.CombinedOutput);
+            }
+
+            var writeScript =
+                $"mkdir -p {remotePaths.RunAsRelativeDirectory} && " +
+                $"cat {stagingFile} > {remotePaths.RunAsRelativeFile} && " +
+                $"chmod 600 {remotePaths.RunAsRelativeFile}";
+            var write = await RunShellAsync(
+                selector,
+                $"run-as {AdbShellSupport.Quote(target.PackageId)} sh -c {AdbShellSupport.Quote(writeScript)}",
+                cancellationToken).ConfigureAwait(false);
+            await RunShellAsync(selector, $"rm -f {AdbShellSupport.Quote(stagingFile)}", cancellationToken).ConfigureAwait(false);
+            if (write.ExitCode != 0)
+            {
+                return Failure(
+                    $"Failed to place hotload profile in {target.Label}'s app sandbox.",
+                    AdbShellSupport.Collapse(write.CombinedOutput),
+                    packageId: target.PackageId);
+            }
+
+            var verify = await RunShellAsync(
+                selector,
+                $"run-as {AdbShellSupport.Quote(target.PackageId)} ls -l {remotePaths.RunAsRelativeFile}",
+                cancellationToken).ConfigureAwait(false);
+            if (verify.ExitCode != 0 || string.IsNullOrWhiteSpace(verify.StdOut))
+            {
+                return MergeWakeWarning(
+                    new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        $"Push sent for {profile.Label} but app-sandbox verification failed.",
+                        AdbShellSupport.Collapse(verify.CombinedOutput),
+                        PackageId: target.PackageId),
+                    wakeOutcome);
+            }
+
+            return MergeWakeWarning(
+                Success(
+                    $"Pushed hotload profile {profile.Label} to {target.PackageId}.",
+                    $"Device path: {remotePaths.DeviceFile}. Staged through run-as app sandbox. {AdbShellSupport.Collapse(push.CombinedOutput)}",
+                    packageId: target.PackageId),
+                wakeOutcome);
+        }
+
         // Create target directory on device
         var mkdir = await RunShellAsync(selector, $"mkdir -p {remotePaths.QuotedDirectory}", cancellationToken).ConfigureAwait(false);
         if (mkdir.ExitCode != 0)
@@ -389,21 +439,21 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         }
 
         // Push CSV
-        var push = await RunAdbAsync(["-s", selector, "push", csvPath, remotePaths.DeviceFile], cancellationToken).ConfigureAwait(false);
-        if (push.ExitCode != 0)
+        var externalPush = await RunAdbAsync(["-s", selector, "push", csvPath, remotePaths.DeviceFile], cancellationToken).ConfigureAwait(false);
+        if (externalPush.ExitCode != 0)
         {
-            return Failure($"ADB push failed for {profile.Label}.", push.CombinedOutput);
+            return Failure($"ADB push failed for {profile.Label}.", externalPush.CombinedOutput);
         }
 
         // Verify file exists on device
-        var verify = await RunShellAsync(selector, $"ls -l {remotePaths.QuotedFile}", cancellationToken).ConfigureAwait(false);
-        if (verify.ExitCode != 0 || string.IsNullOrWhiteSpace(verify.StdOut))
+        var externalVerify = await RunShellAsync(selector, $"ls -l {remotePaths.QuotedFile}", cancellationToken).ConfigureAwait(false);
+        if (externalVerify.ExitCode != 0 || string.IsNullOrWhiteSpace(externalVerify.StdOut))
         {
             return MergeWakeWarning(
                 new OperationOutcome(
                     OperationOutcomeKind.Warning,
                     $"Push sent for {profile.Label} but verification failed.",
-                    AdbShellSupport.Collapse(verify.CombinedOutput),
+                    AdbShellSupport.Collapse(externalVerify.CombinedOutput),
                     PackageId: target.PackageId),
                 wakeOutcome);
         }
@@ -411,7 +461,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         return MergeWakeWarning(
             Success(
                 $"Pushed hotload profile {profile.Label} to {target.PackageId}.",
-                $"Device path: {remotePaths.DeviceFile}. {AdbShellSupport.Collapse(push.CombinedOutput)}",
+                $"Device path: {remotePaths.DeviceFile}. {AdbShellSupport.Collapse(externalPush.CombinedOutput)}",
                 packageId: target.PackageId),
             wakeOutcome);
     }
@@ -423,7 +473,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var remotePaths = BuildRuntimeHotloadRemotePaths(target.PackageId);
 
-        var remove = await RunShellAsync(selector, $"rm -f {remotePaths.QuotedFile}", cancellationToken).ConfigureAwait(false);
+        var removeCommand = remotePaths.UsesRunAsPackageFiles
+            ? $"run-as {AdbShellSupport.Quote(target.PackageId)} rm -f {remotePaths.RunAsRelativeFile}"
+            : $"rm -f {remotePaths.QuotedFile}";
+        var remove = await RunShellAsync(selector, removeCommand, cancellationToken).ConfigureAwait(false);
         if (remove.ExitCode != 0)
         {
             return Failure(
@@ -432,7 +485,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 packageId: target.PackageId);
         }
 
-        var verify = await RunShellAsync(selector, $"ls {remotePaths.QuotedFile} 2>/dev/null", cancellationToken).ConfigureAwait(false);
+        var verifyCommand = remotePaths.UsesRunAsPackageFiles
+            ? $"run-as {AdbShellSupport.Quote(target.PackageId)} sh -c {AdbShellSupport.Quote($"ls {remotePaths.RunAsRelativeFile} 2>/dev/null")}"
+            : $"ls {remotePaths.QuotedFile} 2>/dev/null";
+        var verify = await RunShellAsync(selector, verifyCommand, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(verify.StdOut))
         {
             return new OperationOutcome(
@@ -2898,6 +2954,19 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         return builder.ToString();
     }
 
+    private static string SanitizeAdbPathToken(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(char.IsAsciiLetterOrDigit(character) || character is '_' or '-' or '.'
+                ? character
+                : '_');
+        }
+
+        return builder.ToString();
+    }
+
     private async Task<QuestWakeReadiness> QueryWakeReadinessAsync(
         string selector,
         CancellationToken cancellationToken)
@@ -3425,13 +3494,35 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
-        var deviceDirectory = $"/sdcard/Android/data/{packageId.Trim()}/files/runtime_hotload";
+        var trimmedPackageId = packageId.Trim();
+        if (string.Equals(trimmedPackageId, RustyDopePackage, StringComparison.OrdinalIgnoreCase))
+        {
+            const string relativeDirectory = "files/runtime_hotload";
+            const string relativeFile = "files/runtime_hotload/runtime_overrides.csv";
+            var appSandboxDirectory = $"/data/user/0/{trimmedPackageId}/{relativeDirectory}";
+            var appSandboxFile = $"{appSandboxDirectory}/runtime_overrides.csv";
+            return new RuntimeHotloadRemotePaths(
+                appSandboxDirectory,
+                appSandboxFile,
+                AdbShellSupport.Quote(appSandboxDirectory),
+                AdbShellSupport.Quote(appSandboxFile),
+                UsesRunAsPackageFiles: true,
+                relativeDirectory,
+                relativeFile,
+                $"/data/local/tmp/dope_companion_{SanitizeAdbPathToken(trimmedPackageId)}_runtime_overrides.csv");
+        }
+
+        var deviceDirectory = $"/sdcard/Android/data/{trimmedPackageId}/files/runtime_hotload";
         var deviceFile = $"{deviceDirectory}/runtime_overrides.csv";
         return new RuntimeHotloadRemotePaths(
             deviceDirectory,
             deviceFile,
             AdbShellSupport.Quote(deviceDirectory),
-            AdbShellSupport.Quote(deviceFile));
+            AdbShellSupport.Quote(deviceFile),
+            UsesRunAsPackageFiles: false,
+            string.Empty,
+            string.Empty,
+            null);
     }
 }
 
@@ -3439,7 +3530,11 @@ internal readonly record struct RuntimeHotloadRemotePaths(
     string DeviceDirectory,
     string DeviceFile,
     string QuotedDirectory,
-    string QuotedFile);
+    string QuotedFile,
+    bool UsesRunAsPackageFiles,
+    string RunAsRelativeDirectory,
+    string RunAsRelativeFile,
+    string? ShellStagingFile);
 
 internal readonly record struct QuestScreenBrightnessStatus(
     int? Percent,

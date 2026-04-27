@@ -47,6 +47,30 @@
       "channel": "public",
       "studyLock": false,
       "description": "Large blur radius and strong brightness-gradient distortion mapping for the multi-layer Colorama scene when you want the overlay warp to read clearly and aggressively."
+    },
+    {
+      "id": "rusty_dope_colorama_feedback_border_baseline",
+      "label": "Rusty DOPE Feedback Border Baseline",
+      "file": "rusty-dope-colorama-feedback-border-baseline.csv",
+      "version": "2026.04.27",
+      "channel": "public-preview",
+      "studyLock": false,
+      "packageIds": [
+        "com.tillh.rustydopexr"
+      ],
+      "description": "Rust-specific Colorama feedback-border baseline. Stages the hotload-capable Rusty runtime with the current stable full-lens overscan, no fixed foveation assumptions, and feedback-border tuning."
+    },
+    {
+      "id": "rusty_dope_colorama_feedback_border_soft",
+      "label": "Rusty DOPE Feedback Border Soft",
+      "file": "rusty-dope-colorama-feedback-border-soft.csv",
+      "version": "2026.04.27",
+      "channel": "public-preview",
+      "studyLock": false,
+      "packageIds": [
+        "com.tillh.rustydopexr"
+      ],
+      "description": "Calmer Rust-specific Colorama feedback-border profile with reduced displacement and border mix for first-pass hotload validation without changing the launch-owned OpenXR session settings."
     }
   ]
 }

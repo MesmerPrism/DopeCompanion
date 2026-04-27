@@ -134,6 +134,17 @@ dope-companion hotload list
 dope-companion hotload push dope_projected_feed_colorama_balanced_gradient
 ```
 
+For the Rusty DOPE feedback-border target, select or launch
+`com.tillh.rustydopexr`, then push one of the Rust-scoped profiles:
+
+```powershell
+dope-companion hotload push rusty_dope_colorama_feedback_border_baseline
+dope-companion hotload push rusty_dope_colorama_feedback_border_soft
+```
+
+Those profiles use the same staged CSV upload path but are intentionally
+separate from the Unity projected-feed profiles.
+
 When you need one autonomous public acceptance run that exercises the same
 install/profile/launch path the guided installer ships:
 
@@ -183,8 +194,9 @@ The important environment variables for this repo are:
   path is already on the machine.
 - The bundled public DOPE APK is currently the install and launch source of
   truth.
-- The bundled projected-feed runtime consumes the staged hotload CSVs from this
-  repo today.
+- The bundled Unity projected-feed runtime consumes the staged hotload CSVs
+  from this repo today. Rusty DOPE uses separate Rust-scoped staged CSV profiles
+  when paired with a hotload-capable Rust build.
 - The future `quest_twin_*` and `quest_hotload_config` LSL lane is separate
   from that staged file-upload path.
 

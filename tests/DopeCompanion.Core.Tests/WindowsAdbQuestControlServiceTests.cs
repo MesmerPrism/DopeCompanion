@@ -22,6 +22,26 @@ public sealed class WindowsAdbQuestControlServiceTests
         Assert.Equal(
             "'/sdcard/Android/data/com.tillh.dynamicoscillatorypatternentrainment/files/runtime_hotload/runtime_overrides.csv'",
             paths.QuotedFile);
+        Assert.False(paths.UsesRunAsPackageFiles);
+    }
+
+    [Fact]
+    public void BuildRuntimeHotloadRemotePaths_uses_app_sandbox_for_rusty_dope()
+    {
+        var paths = WindowsAdbQuestControlService.BuildRuntimeHotloadRemotePaths("com.tillh.rustydopexr");
+
+        Assert.Equal(
+            "/data/user/0/com.tillh.rustydopexr/files/runtime_hotload",
+            paths.DeviceDirectory);
+        Assert.Equal(
+            "/data/user/0/com.tillh.rustydopexr/files/runtime_hotload/runtime_overrides.csv",
+            paths.DeviceFile);
+        Assert.Equal("files/runtime_hotload", paths.RunAsRelativeDirectory);
+        Assert.Equal("files/runtime_hotload/runtime_overrides.csv", paths.RunAsRelativeFile);
+        Assert.Equal(
+            "/data/local/tmp/dope_companion_com.tillh.rustydopexr_runtime_overrides.csv",
+            paths.ShellStagingFile);
+        Assert.True(paths.UsesRunAsPackageFiles);
     }
 
     [Fact]

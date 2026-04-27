@@ -58,6 +58,9 @@ For the Rusty DOPE Colorama target:
    required Rusty-DOPE permissions and `debug.rustydope.*` startup properties.
 6. Install the bundled APK.
 7. Launch the app from the companion.
+8. For hotload-capable Rusty DOPE builds, open [Runtime Config](runtime-config.md)
+   and select `Rusty DOPE Feedback Border Baseline` or
+   `Rusty DOPE Feedback Border Soft`.
 
 ## Notes
 
@@ -68,6 +71,6 @@ For the Rusty DOPE Colorama target:
 - The future `quest_twin_state` / `quest_hotload_config` live transport still
   follows the `AstralKarateDojo` contract, but treat that as a separate lane
   from the verified staged profile path.
-- The Rust target is install/launch-only in this companion for now. Unity CSV
-  hotload profiles, live variable setters, twin readback, and focused/media
-  streaming controls do not affect it yet.
+- The Rust target uses Rust-specific staged CSV profiles. Unity CSV profiles,
+  live variable setters, twin readback, and focused/media streaming controls do
+  not affect it.

@@ -25,7 +25,7 @@
       "apkFile": "RustyDOPE-ColoramaFeedbackBorder.apk",
       "launchComponent": "com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadApp",
       "browserPackageId": "com.oculus.browser",
-      "description": "Rust/Makepad OpenXR Colorama feedback-border runtime. The companion can install it and launch it with the required headset-camera permissions and debug.rustydope launch properties, but Unity hotload CSVs, live variable setters, twin readback, and the focused/media streaming controls are not wired for this target yet.",
+      "description": "Rust/Makepad OpenXR Colorama feedback-border runtime. The companion can install it, launch it with the required headset-camera permissions and debug.rustydope launch properties, and stage Rust-specific hotload CSV profiles for hotload-capable Rusty DOPE builds. Unity hotload profiles, live variable setters, twin readback, and focused/media streaming controls are not wired for this target.",
       "tags": [
         "dope",
         "rust",
@@ -33,6 +33,7 @@
         "openxr",
         "colorama",
         "feedback-border",
+        "hotload-preview",
         "adb-only"
       ]
     }
@@ -49,7 +50,7 @@
     {
       "id": "dope-rust-colorama-stack",
       "label": "Rusty DOPE Colorama Stack",
-      "description": "Rust/Makepad Colorama feedback-border runtime. Install and launch are supported; Unity runtime-config, live twin, and focused/media streaming controls are intentionally not advertised.",
+      "description": "Rust/Makepad Colorama feedback-border runtime. Install, launch, and Rust-specific staged CSV profiles are supported for hotload-capable builds; Unity runtime-config, live twin, and focused/media streaming controls are intentionally not advertised.",
       "appIds": [
         "rusty-dope-colorama-feedback-border"
       ]
