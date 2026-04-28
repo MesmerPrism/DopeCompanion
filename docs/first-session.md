@@ -55,7 +55,8 @@ For the Rusty DOPE Colorama target:
 3. Run `Probe USB`.
 4. Select `Rusty DOPE Colorama Feedback Border APK`.
 5. Optionally apply `Rusty DOPE Colorama Balanced`; launch also applies the
-   required Rusty-DOPE permissions and `debug.rustydope.*` startup properties.
+   required Rusty-DOPE camera/scene permissions and `debug.rustydope.*`
+   startup properties.
 6. Install the bundled APK.
 7. Launch the app from the companion.
 8. For hotload-capable Rusty DOPE builds, open [Runtime Config](runtime-config.md)

@@ -25,7 +25,7 @@
       "apkFile": "RustyDOPE-ColoramaFeedbackBorder.apk",
       "launchComponent": "com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadApp",
       "browserPackageId": "com.oculus.browser",
-      "description": "Rust/Makepad OpenXR Colorama feedback-border runtime. The companion can install it, launch it with the required headset-camera permissions and debug.rustydope launch properties, and stage Rust-specific hotload CSV profiles for hotload-capable Rusty DOPE builds. Unity hotload profiles, live variable setters, twin readback, and focused/media streaming controls are not wired for this target.",
+      "description": "Rust/Makepad OpenXR Colorama feedback-border runtime. The companion can install it, launch it with the required Android camera, headset-camera, and scene permissions plus debug.rustydope launch properties, and stage Rust-specific hotload CSV profiles for hotload-capable Rusty DOPE builds. Unity hotload profiles, live variable setters, twin readback, and focused/media streaming controls are not wired for this target.",
       "tags": [
         "dope",
         "rust",

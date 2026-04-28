@@ -12,7 +12,7 @@
                               ]
                  },
                  {
-                     "sha256":  "14F64F9700E376BC10EC981D875DA0BF96358CD1A830D17FA0B855EB471F9DFB",
+                     "sha256":  "300B22C2A57063E44719CC3D6835CC207BE023A4E27AD44DAFFFA42420AAD408",
                      "status":  "compatible",
                      "label":  "Rusty DOPE Colorama feedback-border build",
                      "notes":  "Rust/Makepad OpenXR build from Rusty-DOPE. Companion install and launch are supported with Rust-specific Quest permissions and debug.rustydope startup properties. Rust-specific staged CSV profiles are available for hotload-capable Rusty DOPE builds; Unity hotload profiles, live variable setters, twin readback, and focused/media streaming controls are not wired for this target.",

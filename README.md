@@ -30,14 +30,15 @@ Colorama feedback-border experiment:
 - mirrored APK:
   `samples/quest-session-kit/APKs/RustyDOPE-ColoramaFeedbackBorder.apk`
 - current bundled SHA256:
-  `14F64F9700E376BC10EC981D875DA0BF96358CD1A830D17FA0B855EB471F9DFB`
+  `300B22C2A57063E44719CC3D6835CC207BE023A4E27AD44DAFFFA42420AAD408`
 
 The Rust target is supported for install and launch from the companion. The
-launcher applies the headset-camera permission and `debug.rustydope.*`
-startup properties used by the tested local run. The session kit also includes
-Rust-specific staged CSV profiles for hotload-capable Rusty DOPE builds. Unity
-hotload profiles, live variable setters, twin readback, and focused/media
-streaming controls are not wired for the Rust target.
+launcher applies Android camera, headset-camera, and scene permissions plus
+the `debug.rustydope.*` startup properties used by the tested local run. The
+session kit also includes Rust-specific staged CSV profiles for hotload-capable
+Rusty DOPE builds. Unity hotload profiles, live variable setters, twin
+readback, and focused/media streaming controls are not wired for the Rust
+target.
 
 The public operator surface follows the same delivery posture proven in
 `DopeCompanion`:

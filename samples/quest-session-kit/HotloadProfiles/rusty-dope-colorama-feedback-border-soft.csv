@@ -1,7 +1,7 @@
 # Softer Rusty DOPE Colorama feedback-border validation profile for hotload-capable Rust/Makepad builds.
 key,value
 hotload_profile_id,rusty_dope_colorama_feedback_border_soft
-hotload_profile_version,2026.04.27
+hotload_profile_version,2026.04.28
 hotload_profile_channel,public-preview
 hotload_profile_lock,false
 rusty_xr_render_scale,0.75
@@ -16,8 +16,8 @@ projected_feed_gradient_span,0.86
 projected_feed_gradient_blend,0.82
 projected_feed_gradient_phase_offset,0.00
 rusty_gradient_phase_cycles_per_second,0.10
-projected_feed_max_horizontal_displacement,0.012
-projected_feed_max_vertical_displacement,0.012
+projected_feed_max_horizontal_displacement,0.018
+projected_feed_max_vertical_displacement,0.018
 projected_feed_pre_strength_brightness_blur,true
 projected_feed_pre_brightness_blur_radius_texels,2.00
 projected_feed_pre_brightness_blur_sigma,0.65

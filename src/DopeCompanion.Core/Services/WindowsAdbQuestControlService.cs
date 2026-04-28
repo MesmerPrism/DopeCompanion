@@ -655,6 +655,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             ("stop task lock", AdbShellSupport.BuildTaskLockStopCommand()),
             ("grant scene", $"pm grant {AdbShellSupport.Quote(target.PackageId)} com.oculus.permission.USE_SCENE"),
             ("grant Horizon scene", $"pm grant {AdbShellSupport.Quote(target.PackageId)} horizonos.permission.USE_SCENE"),
+            ("grant Android camera", $"pm grant {AdbShellSupport.Quote(target.PackageId)} android.permission.CAMERA"),
             ("grant headset camera", $"pm grant {AdbShellSupport.Quote(target.PackageId)} horizonos.permission.HEADSET_CAMERA"),
             ("grant audio", $"pm grant {AdbShellSupport.Quote(target.PackageId)} android.permission.RECORD_AUDIO"),
             ("allow media projection", $"appops set {AdbShellSupport.Quote(target.PackageId)} PROJECT_MEDIA allow"),

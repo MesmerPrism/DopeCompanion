@@ -28,8 +28,9 @@ from this kit and reports the active profile in startup diagnostics.
 
 The Rust APK is a separate OpenXR/Makepad target. The companion can install and
 launch it, and launch applies the Rusty-DOPE permission/property bootstrap
-(`horizonos.permission.HEADSET_CAMERA`, scene permission attempts, media
-projection app-op, and the tested `debug.rustydope.*` render/capture values).
+(`android.permission.CAMERA`, `horizonos.permission.HEADSET_CAMERA`, scene
+permission attempts, media projection app-op, and the tested
+`debug.rustydope.*` render/capture values).
 For hotload-capable Rusty DOPE builds, the kit also includes Rust-specific CSV
 profiles that stage Colorama feedback-border parameters into the app-private
 `runtime_hotload/runtime_overrides.csv` file through `run-as`. Do not expect
