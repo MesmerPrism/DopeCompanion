@@ -269,6 +269,84 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
     }
 
     [Fact]
+    public async Task AnalyzeAsync_SkipsQuestWifiTransportCheck_WhenLocalOnly()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "external.sender.primary", 1, 10f, 100d)
+            ]);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest(
+            "HRV_Biofeedback",
+            "HRV",
+            QuestWifiTransport: new QuestWifiTransportDiagnosticsContext(
+                CreateConnectedHeadsetStatus(),
+                "192.168.0.55:5555"),
+            LocalOnly: true));
+
+        var wifiCheck = Assert.Single(result.Checks, check => check.Id == "quest-wifi-transport");
+        Assert.Equal(OperationOutcomeKind.Preview, wifiCheck.Level);
+        Assert.Contains("local-only", wifiCheck.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ReturnsPartialDiagnostics_WhenBoundedCheckTimesOut()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [],
+            delay: TimeSpan.FromMilliseconds(200));
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest(
+            "HRV_Biofeedback",
+            "HRV",
+            ProbeExpectedLslStream: false,
+            CheckTimeout: TimeSpan.FromMilliseconds(20)));
+
+        var discoveryHealthCheck = Assert.Single(result.Checks, check => check.Id == "lsl-discovery-health");
+        Assert.Equal(OperationOutcomeKind.Warning, discoveryHealthCheck.Level);
+        Assert.Contains("timed out", discoveryHealthCheck.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(OperationOutcomeKind.Warning, result.Level);
+    }
+
+    [Fact]
     public async Task AnalyzeAsync_FailsDiscoverySelfCheck_WhenLiblslResolverThrowsSocketError()
     {
         var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
@@ -502,12 +580,18 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
         LslRuntimeState runtimeState,
         IReadOnlyList<LslVisibleStreamInfo> visibleStreams,
         Exception? exception = null,
-        bool includeLoopback = true) : ILslStreamDiscoveryService
+        bool includeLoopback = true,
+        TimeSpan? delay = null) : ILslStreamDiscoveryService
     {
         public LslRuntimeState RuntimeState { get; } = runtimeState;
 
         public IReadOnlyList<LslVisibleStreamInfo> Discover(LslStreamDiscoveryRequest request)
         {
+            if (delay.HasValue)
+            {
+                Task.Delay(delay.Value).GetAwaiter().GetResult();
+            }
+
             if (exception is not null)
             {
                 throw exception;

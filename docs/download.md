@@ -37,6 +37,10 @@ The public release page is:
 
 - [MesmerPrism/DopeCompanion Releases](https://github.com/MesmerPrism/DopeCompanion/releases)
 
+The current release line includes the fixed runtime-config dropdown popouts,
+the Unity and Rusty DOPE bundled APKs, and the packaged CLI diagnostics used by
+the guided installer.
+
 If a direct asset link returns `404`, open the Releases page first. That means
 the latest packaged build has not been published yet.
 
@@ -97,6 +101,12 @@ of only reporting on the current state.
   `Windows Environment` -> `Run Full Diagnostic Harness`
 - bundled CLI path:
   `.\\dope-companion.ps1 study run-harness dope-projected-feed-colorama`
+- local-only environment check:
+  `.\\dope-companion.ps1 windows-env analyze --local-only --check-timeout-seconds 8`
+- maintainer consumer-smoke path:
+  from a source checkout, run
+  `powershell -ExecutionPolicy Bypass -File .\\tools\\app\\Test-ConsumerInstall.ps1`
+  after installing the packaged app once
 - the harness tries to:
   refresh missing managed Quest tooling, reconnect the headset, reinstall the
   pinned public APK, apply the curated device profile, stage the baseline scene

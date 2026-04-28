@@ -14,11 +14,13 @@ Use this path only if you are editing the companion repo itself.
 ```powershell
 git clone <repo-url> DopeCompanion
 cd DopeCompanion
-git lfs install
-git lfs pull
 dotnet build DopeCompanion.sln
 dotnet test DopeCompanion.sln
 ```
+
+The bundled public APK mirrors are stored directly in Git. A normal clone is
+enough for source builds and local Pages builds; Git LFS is not part of the
+current public release path.
 
 Run the app with:
 

@@ -93,6 +93,11 @@ The guided installer and `dope-companion tooling install-official` fetch and
 maintain the published Windows `scrcpy` bundle in the managed LocalAppData tool
 cache instead.
 
+Release note:
+
+- APK mirrors are stored directly in Git for this public repo. Do not require
+  Git LFS for normal clone, build, Pages, or release workflow runs.
+
 If the Quest runtime itself needs to change, do that first in
 `C:\Users\tillh\source\repos\Dynamic Oscillatory Pattern Entrainment`, then
 refresh the mirrored APK here.
@@ -110,8 +115,6 @@ refresh the mirrored APK here.
 ```powershell
 git clone <repo-url> DopeCompanion
 cd DopeCompanion
-git lfs install
-git lfs pull
 dotnet build DopeCompanion.sln
 dotnet test DopeCompanion.sln
 ```

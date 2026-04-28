@@ -118,6 +118,15 @@ Defaults:
 | `windows-env analyze` | Check Windows-side `adb`, `hzdb`, liblsl, and common network hazards |
 | `study run-harness <study>` | Reinstall the pinned APK, apply the device profile and baseline scene profile, launch the app, and write a shareable harness bundle |
 
+Useful `windows-env analyze` options:
+
+- `--local-only`: skip saved headset selectors and ADB-backed Quest Wi-Fi
+  transport probes, which is useful for consumer machines where you only want
+  local Windows/liblsl diagnostics.
+- `--check-timeout-seconds <seconds>`: bound the slow probe steps so diagnostics
+  return partial findings instead of hanging behind one blocked network or LSL
+  check.
+
 ## Current DOPE Workflow
 
 For the public projected-feed Colorama line, the practical CLI path is:
