@@ -86,4 +86,31 @@ public sealed class DisplayCastOverlayWindowSourceTests
         Assert.Contains("private void OnLoaded(object sender, RoutedEventArgs e)", source, StringComparison.Ordinal);
         Assert.Contains("private void ActivateOverlayWindow()", source, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Minimize_button_respects_minimized_state_until_an_explicit_restore_is_requested()
+    {
+        var sourcePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "src",
+            "DopeCompanion.App",
+            "DisplayCastOverlayWindow.xaml.cs");
+
+        var source = await File.ReadAllTextAsync(Path.GetFullPath(sourcePath));
+        var normalizedSource = source.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+        Assert.Contains("public void RefreshFromCastWindow(bool requestRestore = false)", source, StringComparison.Ordinal);
+        Assert.Contains("_restoreFromMinimizedStateRequested = true;", source, StringComparison.Ordinal);
+        Assert.Contains("if (_castService.IsWindowMinimized)", source, StringComparison.Ordinal);
+        Assert.Contains("_castService.TryRestoreWindow()", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "if (WindowState == WindowState.Minimized)\n        {\n            if (!restoreRequested)\n            {\n                return;\n            }\n",
+            normalizedSource,
+            StringComparison.Ordinal);
+    }
 }

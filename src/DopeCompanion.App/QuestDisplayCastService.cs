@@ -31,6 +31,17 @@ internal sealed class QuestDisplayCastService : IDisposable
 
     public bool IsRestarting => _isRestarting;
 
+    public bool IsWindowMinimized
+    {
+        get
+        {
+            RefreshState();
+            return TryRefreshWindowHandle() &&
+                   _windowHandle != 0 &&
+                   NativeMethods.IsIconic(_windowHandle);
+        }
+    }
+
     public string CaptureSourceLabel => "Display 0 · default stereo mirror";
 
     public string WindowTitle => DefaultWindowTitle;

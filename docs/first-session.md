@@ -28,7 +28,7 @@ Secondary Rust target:
 - app: `Rusty DOPE Colorama Feedback Border`
 - package id: `com.tillh.rustydopexr`
 - launch activity:
-  `com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadApp`
+  `com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadAppXr`
 - bundled APK:
   `samples/quest-session-kit/APKs/RustyDOPE-ColoramaFeedbackBorder.apk`
 

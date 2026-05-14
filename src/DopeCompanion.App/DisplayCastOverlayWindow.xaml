@@ -478,7 +478,7 @@
                     <Style TargetType="Border">
                         <Setter Property="Background" Value="Transparent" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsLiveSessionCastRenderViewMode}" Value="True">
+                            <DataTrigger Binding="{Binding IsLiveSessionCastDirectFrameMode}" Value="True">
                                 <Setter Property="Background" Value="{StaticResource PanelBrush}" />
                             </DataTrigger>
                         </Style.Triggers>
@@ -494,7 +494,7 @@
                                 <Style.Triggers>
                                     <MultiDataTrigger>
                                         <MultiDataTrigger.Conditions>
-                                            <Condition Binding="{Binding IsLiveSessionCastRenderViewMode}" Value="True" />
+                                            <Condition Binding="{Binding IsLiveSessionCastDirectFrameMode}" Value="True" />
                                             <Condition Binding="{Binding HasLiveSessionCastFocusedLayerPreviewImage}" Value="True" />
                                         </MultiDataTrigger.Conditions>
                                         <Setter Property="Visibility" Value="Visible" />
@@ -504,7 +504,7 @@
                         </Image.Style>
                     </Image>
 
-                    <TextBlock Text="Waiting for the next direct Quest Render View frame."
+                    <TextBlock Text="{Binding LiveSessionCastFrameWaitingText}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
                                TextAlignment="Center">
@@ -514,7 +514,7 @@
                                 <Style.Triggers>
                                     <MultiDataTrigger>
                                         <MultiDataTrigger.Conditions>
-                                            <Condition Binding="{Binding IsLiveSessionCastRenderViewMode}" Value="True" />
+                                            <Condition Binding="{Binding IsLiveSessionCastDirectFrameMode}" Value="True" />
                                             <Condition Binding="{Binding HasLiveSessionCastFocusedLayerPreviewImage}" Value="False" />
                                         </MultiDataTrigger.Conditions>
                                         <Setter Property="Visibility" Value="Visible" />
@@ -618,7 +618,7 @@
                                 </Image.Style>
                             </Image>
 
-                            <TextBlock Text="Waiting for the next direct Quest Render View frame."
+                            <TextBlock Text="{Binding LiveSessionCastFrameWaitingText}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        TextAlignment="Center">

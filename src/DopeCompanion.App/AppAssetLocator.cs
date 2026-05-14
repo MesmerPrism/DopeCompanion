@@ -64,6 +64,18 @@ internal static class AppAssetLocator
                 "DopeCompanion",
                 "docs"));
 
+    public static string? TryResolveRustyDopeRoot()
+        => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("DOPE_RUSTY_DOPE_ROOT"),
+            Environment.GetEnvironmentVariable("RUSTY_DOPE_ROOT"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "Rusty-DOPE")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Rusty-DOPE")),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "Rusty-DOPE"));
+
     public static string? TryResolveBundledCliRoot()
         => TryResolveExistingDirectoryContainingAnyFile(
             BundledCliEntryPoints,

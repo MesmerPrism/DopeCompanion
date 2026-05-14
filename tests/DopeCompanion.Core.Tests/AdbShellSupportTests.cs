@@ -5,6 +5,24 @@ namespace DopeCompanion.Core.Tests;
 public sealed class AdbShellSupportTests
 {
     [Fact]
+    public void BuildExplicitLaunchCommand_UsesVrCategoryForGeneratedMakepadXrActivity()
+    {
+        var command = AdbShellSupport.BuildExplicitLaunchCommand("com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadAppXr");
+
+        Assert.Equal(
+            "am start -W -a android.intent.action.MAIN -c com.oculus.intent.category.VR -n 'com.tillh.rustydopexr/com.tillh.rustydopexr.MakepadAppXr'",
+            command);
+    }
+
+    [Fact]
+    public void BuildExplicitLaunchCommand_KeepsStandardExplicitLaunchForOtherActivities()
+    {
+        var command = AdbShellSupport.BuildExplicitLaunchCommand("com.example.app/com.example.app.MainActivity");
+
+        Assert.Equal("am start -W -n 'com.example.app/com.example.app.MainActivity'", command);
+    }
+
+    [Fact]
     public void ParseForegroundPackage_ExtractsResumedPackage()
     {
         const string output = """

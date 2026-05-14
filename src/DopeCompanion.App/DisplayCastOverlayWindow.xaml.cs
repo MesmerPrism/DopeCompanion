@@ -31,6 +31,7 @@ internal partial class DisplayCastOverlayWindow : Window
     private bool _isResizingWithGrip;
     private bool _refreshChromeAfterReload;
     private bool _chromeRefreshQueued;
+    private bool _restoreFromMinimizedStateRequested;
     private int _foregroundActivationGeneration;
     private WindowLayoutBounds? _restoreBounds;
     private nint _windowHandle;
@@ -83,8 +84,15 @@ internal partial class DisplayCastOverlayWindow : Window
         Closed += OnClosed;
     }
 
-    public void RefreshFromCastWindow()
-        => SyncToCastWindow();
+    public void RefreshFromCastWindow(bool requestRestore = false)
+    {
+        if (requestRestore)
+        {
+            _restoreFromMinimizedStateRequested = true;
+        }
+
+        SyncToCastWindow();
+    }
 
     public bool CreatedForRenderViewMode => _createdForRenderViewMode;
 
@@ -104,7 +112,7 @@ internal partial class DisplayCastOverlayWindow : Window
     }
 
     private bool IsRenderViewMode
-        => DataContext is MainWindowViewModel viewModel && viewModel.IsLiveSessionCastRenderViewMode;
+        => DataContext is MainWindowViewModel viewModel && viewModel.IsLiveSessionCastDirectFrameMode;
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
@@ -168,6 +176,20 @@ internal partial class DisplayCastOverlayWindow : Window
             return;
         }
 
+        var restoreRequested = _restoreFromMinimizedStateRequested;
+        if (_castService.IsWindowMinimized)
+        {
+            if (!restoreRequested || !_castService.TryRestoreWindow())
+            {
+                if (IsVisible)
+                {
+                    Hide();
+                }
+
+                return;
+            }
+        }
+
         if (!_castService.IsRunning ||
             !_castService.TryGetWindowHandle(out var castHandle) ||
             castHandle == 0 ||
@@ -181,6 +203,7 @@ internal partial class DisplayCastOverlayWindow : Window
             return;
         }
 
+        _restoreFromMinimizedStateRequested = false;
         var ownerChanged = castHandle != _ownedCastHandle;
         TrySetOwner(castHandle);
         RefreshMinimumWindowSize();
@@ -217,15 +240,22 @@ internal partial class DisplayCastOverlayWindow : Window
     {
         ClearOwner();
         RefreshMinimumWindowSize();
+        var restoreRequested = _restoreFromMinimizedStateRequested;
         var restoredFromMinimized = false;
         if (WindowState == WindowState.Minimized)
         {
+            if (!restoreRequested)
+            {
+                return;
+            }
+
             WindowState = WindowState.Normal;
             restoredFromMinimized = true;
         }
 
+        _restoreFromMinimizedStateRequested = false;
         var recenteredToVisibleDesktop = EnsureStandaloneBoundsVisible();
-        var shouldActivate = restoredFromMinimized || recenteredToVisibleDesktop;
+        var shouldActivate = restoredFromMinimized || recenteredToVisibleDesktop || restoreRequested;
 
         if (!IsVisible)
         {
@@ -350,12 +380,15 @@ internal partial class DisplayCastOverlayWindow : Window
             }
         }
 
+        var companionViewModel = DataContext as MainWindowViewModel;
         Title = IsRenderViewMode
-            ? "DOPE Companion Render View"
+            ? companionViewModel is not null
+                ? $"DOPE Companion {companionViewModel.LiveSessionCastSurfaceModeLabel}"
+                : "DOPE Companion Direct Frame View"
             : $"{_castService.WindowTitle} Controls";
-        if (DataContext is MainWindowViewModel viewModel)
+        if (companionViewModel is not null)
         {
-            CaptureSourceText.Text = viewModel.LiveSessionCastSourceLabel;
+            CaptureSourceText.Text = companionViewModel.LiveSessionCastSourceLabel;
         }
         else
         {
@@ -368,7 +401,11 @@ internal partial class DisplayCastOverlayWindow : Window
         }
         else
         {
-            WindowSizeText.Text = IsRenderViewMode ? "Waiting for Render View" : "Waiting for cast";
+            WindowSizeText.Text = IsRenderViewMode
+                ? companionViewModel is not null
+                    ? $"Waiting for {companionViewModel.LiveSessionCastSurfaceModeLabel}"
+                    : "Waiting for direct frames"
+                : "Waiting for cast";
         }
 
         FullscreenButton.Content = _isFullscreen ? "Restore" : "Full Size";
@@ -453,6 +490,7 @@ internal partial class DisplayCastOverlayWindow : Window
 
     private void OnMinimizeWindowClicked(object sender, RoutedEventArgs e)
     {
+        _restoreFromMinimizedStateRequested = false;
         if (IsRenderViewMode)
         {
             WindowState = WindowState.Minimized;

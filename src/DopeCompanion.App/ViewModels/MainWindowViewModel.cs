@@ -52,6 +52,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private const string LiveSessionCastAudioTriggerKey = "projected_feed_focus_layer_audio_trigger_enabled";
     private const string LiveSessionCastSurfaceModeMirror = "mirror";
     private const string LiveSessionCastSurfaceModeRenderView = "render-view";
+    private const string LiveSessionCastSurfaceModeMediaProjection = "media-projection";
     private static readonly LiveSessionCastFocusLayerDefinition[] LiveSessionCastFocusLayerDefinitions =
     [
         new("-1", "Auto", "Follow the APK's audio-reactive layer cycling."),
@@ -65,7 +66,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private static readonly LiveSessionCastSurfaceModeDefinition[] LiveSessionCastSurfaceModeDefinitions =
     [
         new(LiveSessionCastSurfaceModeMirror, "Display Mirror", "Keep scrcpy as the large main surface and keep Render View in the sidebar."),
-        new(LiveSessionCastSurfaceModeRenderView, "Render View", "Promote the direct Quest render stream into the large main surface and leave scrcpy off.")
+        new(LiveSessionCastSurfaceModeRenderView, "Render View", "Promote the direct Quest render stream into the large main surface and leave scrcpy off."),
+        new(LiveSessionCastSurfaceModeMediaProjection, "MediaProjection", "Promote Rusty-DOPE composite capture frames into the large main surface and leave scrcpy off.")
     ];
 
     private readonly QuestSessionKitCatalogLoader _catalogLoader = new();
@@ -85,6 +87,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
     private readonly QuestDisplayCastService _questDisplayCastService = new();
     private readonly FocusedLayerPreviewService _focusedLayerPreviewService = new();
+    private readonly MediaProjectionStreamService _mediaProjectionStreamService = new();
     private readonly DopeParticleSizeTuningCompiler _dopeParticleSizeTuningCompiler = new();
     private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly Dispatcher _dispatcher;
@@ -242,6 +245,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private int _preferredCompanionActivationGeneration;
     private bool _liveSessionCastStopInProgress;
     private bool _lastFocusedLayerPreviewRunning;
+    private bool _lastMediaProjectionStreamRunning;
 
     public MainWindowViewModel()
     {
@@ -266,6 +270,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _runtimeConfig.PropertyChanged += OnRuntimeConfigPropertyChanged;
         _questDisplayCastService.StateChanged += OnQuestDisplayCastStateChanged;
         _focusedLayerPreviewService.StateChanged += OnFocusedLayerPreviewStateChanged;
+        _mediaProjectionStreamService.StateChanged += OnMediaProjectionStreamStateChanged;
         foreach (var scope in TwinInspectorScopeCatalog)
         {
             TwinInspectorScopes.Add(scope);
@@ -1381,30 +1386,45 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         => ResolveLiveSessionCastSurfaceModeLabel(_liveSessionCastSurfaceMode);
 
     public string LiveSessionCastSurfaceModeDetail
-        => string.Equals(_liveSessionCastSurfaceMode, LiveSessionCastSurfaceModeRenderView, StringComparison.OrdinalIgnoreCase)
-            ? "Render View makes the direct Quest layer stream the large main surface so scrcpy can stay off until you switch back."
-            : "Display Mirror keeps scrcpy as the large main surface and keeps the smaller Render View visible in the sidebar.";
+        => _liveSessionCastSurfaceMode switch
+        {
+            LiveSessionCastSurfaceModeRenderView => "Render View makes the direct Quest layer stream the large main surface so scrcpy can stay off until you switch back.",
+            LiveSessionCastSurfaceModeMediaProjection => "MediaProjection makes the Rusty-DOPE composite capture bridge the large main surface so scrcpy can stay off until you switch back.",
+            _ => "Display Mirror keeps scrcpy as the large main surface and keeps the smaller Render View visible in the sidebar."
+        };
 
     public bool IsLiveSessionCastRenderViewMode
         => string.Equals(_liveSessionCastSurfaceMode, LiveSessionCastSurfaceModeRenderView, StringComparison.OrdinalIgnoreCase);
 
+    public bool IsLiveSessionCastMediaProjectionMode
+        => string.Equals(_liveSessionCastSurfaceMode, LiveSessionCastSurfaceModeMediaProjection, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsLiveSessionCastDirectFrameMode
+        => IsLiveSessionCastRenderViewMode || IsLiveSessionCastMediaProjectionMode;
+
     public bool ShowLiveSessionCastSidebarRenderView
-        => !IsLiveSessionCastRenderViewMode;
+        => !IsLiveSessionCastDirectFrameMode;
 
     public string LiveSessionCastStartActionLabel
-        => IsLiveSessionCastRenderViewMode
-            ? "Start Render View"
-            : "Start Display 0";
+        => IsLiveSessionCastMediaProjectionMode
+            ? "Start MediaProjection"
+            : IsLiveSessionCastRenderViewMode
+                ? "Start Render View"
+                : "Start Display 0";
 
     public string LiveSessionCastRestartActionLabel
-        => IsLiveSessionCastRenderViewMode
-            ? "Restart Render View"
-            : "Restart Cast";
+        => IsLiveSessionCastMediaProjectionMode
+            ? "Restart MediaProjection"
+            : IsLiveSessionCastRenderViewMode
+                ? "Restart Render View"
+                : "Restart Cast";
 
     public string LiveSessionCastStopActionLabel
-        => IsLiveSessionCastRenderViewMode
-            ? "Stop Render View"
-            : "Stop Cast";
+        => IsLiveSessionCastMediaProjectionMode
+            ? "Stop MediaProjection"
+            : IsLiveSessionCastRenderViewMode
+                ? "Stop Render View"
+                : "Stop Cast";
 
     public string LiveSessionCastFocusLayerStatusLabel
         => _liveSessionCastFocusLayerSetting is null
@@ -1463,7 +1483,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         => LiveSessionCastFocusedLayerPreviewImage is not null;
 
     public string LiveSessionCastFocusedLayerPreviewArtifactPath
-        => NormalizeHostVisibleOperatorPath(_focusedLayerPreviewService.LatestArtifactPath);
+        => NormalizeHostVisibleOperatorPath(IsLiveSessionCastMediaProjectionMode
+            ? _mediaProjectionStreamService.LatestArtifactPath
+            : _focusedLayerPreviewService.LatestArtifactPath);
+
+    public string LiveSessionCastFrameWaitingText
+        => IsLiveSessionCastMediaProjectionMode
+            ? "Waiting for the next Rusty-DOPE MediaProjection frame."
+            : "Waiting for the next direct Quest Render View frame.";
 
     public string LiveSessionRuntimeReadbackSummary
     {
@@ -1496,14 +1523,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     public string LiveSessionCastSourceLabel
-        => IsLiveSessionCastRenderViewMode
-            ? "Render View · direct Quest layer stream"
-            : _questDisplayCastService.CaptureSourceLabel;
+        => IsLiveSessionCastMediaProjectionMode
+            ? "MediaProjection · Rusty-DOPE composite capture"
+            : IsLiveSessionCastRenderViewMode
+                ? "Render View · direct Quest layer stream"
+                : _questDisplayCastService.CaptureSourceLabel;
 
     public string LiveSessionCastToolingLabel
-        => IsLiveSessionCastRenderViewMode
-            ? $"adb reverse + direct H.264 render-view bridge on 127.0.0.1:{_focusedLayerPreviewService.Port}"
-            : _questDisplayCastService.ToolingPath;
+        => IsLiveSessionCastMediaProjectionMode
+            ? $"Rusty-DOPE composite-capture bridge on {_mediaProjectionStreamService.BridgeUrl}"
+            : IsLiveSessionCastRenderViewMode
+                ? $"adb reverse + direct H.264 render-view bridge on 127.0.0.1:{_focusedLayerPreviewService.Port}"
+                : _questDisplayCastService.ToolingPath;
 
     public OperationOutcomeKind LiveSessionProximityLevel
     {
@@ -1816,6 +1847,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _runtimeConfig.PropertyChanged -= OnRuntimeConfigPropertyChanged;
         _questDisplayCastService.StateChanged -= OnQuestDisplayCastStateChanged;
         _focusedLayerPreviewService.StateChanged -= OnFocusedLayerPreviewStateChanged;
+        _mediaProjectionStreamService.StateChanged -= OnMediaProjectionStreamStateChanged;
         CloseFullDiagnosticHarnessWindow();
         CloseLiveSessionWindow();
         CloseLiveSessionCastOverlayWindow();
@@ -1824,6 +1856,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _liveSessionCastFocusLayerSetting?.Dispose();
         _liveSessionCastAudioTriggerSetting?.Dispose();
         _focusedLayerPreviewService.Dispose();
+        _mediaProjectionStreamService.Dispose();
         _questDisplayCastService.Dispose();
         ActiveStudyShell?.Dispose();
 
@@ -2274,9 +2307,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         var parts = new List<string>();
-        var supportsTwin = tags.Any(t => t.Equals("twin", StringComparison.OrdinalIgnoreCase));
-        var supportsRuntime = tags.Any(t => t.Equals("runtime", StringComparison.OrdinalIgnoreCase));
-        var supportsLsl = tags.Any(t => t.Equals("lsl", StringComparison.OrdinalIgnoreCase));
+        var supportsTwin = HasTag(tags, "twin");
+        var supportsRuntime = HasTag(tags, "runtime");
+        var supportsLsl = HasTag(tags, "lsl");
+        var isRustTarget = HasTag(tags, "rust") || HasTag(tags, "makepad");
 
         if (supportsTwin)
             parts.Add("twin bridge");
@@ -2284,6 +2318,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             parts.Add("runtime config hotload");
         if (supportsLsl)
             parts.Add("LSL telemetry relay");
+        if (isRustTarget)
+            parts.Add("Rusty-DOPE permission/property launch bootstrap");
 
         var capabilitySummary = parts.Count > 0
             ? $"This app supports: {string.Join(", ", parts)}."
@@ -2299,7 +2335,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             ? string.Empty
             : $" {SelectedApp.CompatibilityNotes}";
 
-        SelectedAppPipelineLabel = supportsRuntime && !supportsTwin
+        SelectedAppPipelineLabel = isRustTarget
+            ? $"{capabilitySummary} The Rust target uses ADB launch prep plus companion cast surfaces; Unity hotload CSVs, live variable setters, and twin readback still depend on separate runtime support.{hashSummary}{compatibilityNotes}"
+            : supportsRuntime && !supportsTwin
             ? $"{capabilitySummary} Live requested/reported config tracking requires a twin-state publisher on `quest_twin_state` such as LslTwin.{hashSummary}{compatibilityNotes}"
             : $"{capabilitySummary}{hashSummary}{compatibilityNotes}";
 
@@ -3298,7 +3336,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void EnsureLiveSessionCastOverlayWindow()
     {
-        var desiredRenderViewMode = IsLiveSessionCastRenderViewMode;
+        var desiredRenderViewMode = IsLiveSessionCastDirectFrameMode;
         if (!_questDisplayCastService.IsRunning && !desiredRenderViewMode)
         {
             CloseLiveSessionCastOverlayWindow();
@@ -3310,7 +3348,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _liveSessionCastPreferredOverlayBounds = _liveSessionCastOverlayWindow.CurrentOverlayBounds;
             if (_liveSessionCastOverlayWindow.CreatedForRenderViewMode == desiredRenderViewMode)
             {
-                _liveSessionCastOverlayWindow.RefreshFromCastWindow();
+                _liveSessionCastOverlayWindow.RefreshFromCastWindow(requestRestore: true);
                 return;
             }
 
@@ -3328,7 +3366,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         window.Closed += OnLiveSessionCastOverlayWindowClosed;
         _liveSessionCastOverlayWindow = window;
         window.Show();
-        window.RefreshFromCastWindow();
+        window.RefreshFromCastWindow(requestRestore: true);
     }
 
     private void ActivatePreferredCompanionWindow()
@@ -3462,7 +3500,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var selector = ResolveDisplayCastSelector();
         var outcome = await StartSelectedLiveSessionCastSurfaceAsync(selector).ConfigureAwait(false);
         await ApplyOutcomeAsync(
-            "Start Display 0 Cast",
+            "Start Live Session Cast",
             outcome).ConfigureAwait(false);
         await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
     }
@@ -3477,9 +3515,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         var castOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
         var previewOutcome = await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);
+        var mediaProjectionOutcome = await _mediaProjectionStreamService.StopAsync().ConfigureAwait(false);
         await ApplyOutcomeAsync(
-            "Stop Display 0 Cast",
-            CombineLiveSessionCastOutcomes(castOutcome, previewOutcome)).ConfigureAwait(false);
+            "Stop Live Session Cast",
+            CombineLiveSessionCastOutcomes("Cast surfaces stopped.", castOutcome, previewOutcome, mediaProjectionOutcome)).ConfigureAwait(false);
         await DispatchAsync(SyncLiveSessionCastSurface).ConfigureAwait(false);
         CompanionWindowActivationHelper.DismissKnownBlockingShellOverlays();
         RequestPreferredCompanionWindowActivation();
@@ -3491,18 +3530,20 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var selector = ResolveDisplayCastSelector();
         var stopCastOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
         var stopPreviewOutcome = await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false);
+        var stopMediaProjectionOutcome = await _mediaProjectionStreamService.StopAsync().ConfigureAwait(false);
         var startOutcome = await StartSelectedLiveSessionCastSurfaceAsync(selector).ConfigureAwait(false);
 
         await ApplyOutcomeAsync(
-            "Restart Display 0 Cast",
+            "Restart Live Session Cast",
             new OperationOutcome(
-                GetMoreSevereOutcomeKind(GetMoreSevereOutcomeKind(stopCastOutcome.Kind, stopPreviewOutcome.Kind), startOutcome.Kind),
+                GetMoreSevereOutcomeKind(GetMoreSevereOutcomeKind(GetMoreSevereOutcomeKind(stopCastOutcome.Kind, stopPreviewOutcome.Kind), stopMediaProjectionOutcome.Kind), startOutcome.Kind),
                 startOutcome.Summary,
-                $"{stopCastOutcome.Detail} {stopPreviewOutcome.Detail} {startOutcome.Detail}".Trim(),
+                $"{stopCastOutcome.Detail} {stopPreviewOutcome.Detail} {stopMediaProjectionOutcome.Detail} {startOutcome.Detail}".Trim(),
                 startOutcome.Endpoint,
                 startOutcome.PackageId,
                 stopCastOutcome.SafeItems
                     .Concat(stopPreviewOutcome.SafeItems)
+                    .Concat(stopMediaProjectionOutcome.SafeItems)
                     .Concat(startOutcome.SafeItems)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray())).ConfigureAwait(false);
@@ -3535,16 +3576,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         var selector = ResolveDisplayCastSelector();
         var outcome = await StartSelectedLiveSessionCastSurfaceAsync(selector).ConfigureAwait(false);
-        if (string.Equals(normalizedValue, LiveSessionCastSurfaceModeRenderView, StringComparison.OrdinalIgnoreCase))
+        if (IsLiveSessionCastDirectFrameModeValue(normalizedValue))
         {
-            var stopCastOutcome = await _questDisplayCastService.StopAsync().ConfigureAwait(false);
             outcome = new OperationOutcome(
-                GetMoreSevereOutcomeKind(stopCastOutcome.Kind, outcome.Kind),
-                "Render View is now the main surface.",
-                $"{stopCastOutcome.Detail} {outcome.Detail}".Trim(),
-                outcome.Endpoint ?? stopCastOutcome.Endpoint,
+                outcome.Kind,
+                $"{ResolveLiveSessionCastSurfaceModeLabel(normalizedValue)} is now the main surface.",
+                $"{outcome.Detail} scrcpy stays off while this direct frame surface is the main view.".Trim(),
+                outcome.Endpoint,
                 outcome.PackageId,
-                stopCastOutcome.SafeItems.Concat(outcome.SafeItems).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+                outcome.SafeItems);
         }
 
         if (outcome.Kind == OperationOutcomeKind.Failure)
@@ -3574,15 +3614,51 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         if (IsLiveSessionCastRenderViewMode)
         {
+            var stopCastOutcome = _questDisplayCastService.IsRunning
+                ? await _questDisplayCastService.StopAsync().ConfigureAwait(false)
+                : new OperationOutcome(OperationOutcomeKind.Preview, "Display 0 already stopped.", "scrcpy was not running.");
+            var stopMediaProjectionOutcome = _mediaProjectionStreamService.IsRunning
+                ? await _mediaProjectionStreamService.StopAsync().ConfigureAwait(false)
+                : new OperationOutcome(OperationOutcomeKind.Preview, "MediaProjection already stopped.", "The MediaProjection bridge was not running.");
             var renderViewOutcome = await _focusedLayerPreviewService.StartAsync(selector).ConfigureAwait(false);
             return new OperationOutcome(
-                renderViewOutcome.Kind,
+                GetMoreSevereOutcomeKind(GetMoreSevereOutcomeKind(stopCastOutcome.Kind, stopMediaProjectionOutcome.Kind), renderViewOutcome.Kind),
                 renderViewOutcome.Summary,
-                $"{renderViewOutcome.Detail} scrcpy stays off while Render View is the main surface.".Trim(),
-                renderViewOutcome.Endpoint,
+                $"{stopCastOutcome.Detail} {stopMediaProjectionOutcome.Detail} {renderViewOutcome.Detail} scrcpy stays off while Render View is the main surface.".Trim(),
+                renderViewOutcome.Endpoint ?? stopCastOutcome.Endpoint,
                 renderViewOutcome.PackageId,
-                renderViewOutcome.SafeItems);
+                stopCastOutcome.SafeItems
+                    .Concat(stopMediaProjectionOutcome.SafeItems)
+                    .Concat(renderViewOutcome.SafeItems)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray());
         }
+
+        if (IsLiveSessionCastMediaProjectionMode)
+        {
+            var stopCastOutcome = _questDisplayCastService.IsRunning
+                ? await _questDisplayCastService.StopAsync().ConfigureAwait(false)
+                : new OperationOutcome(OperationOutcomeKind.Preview, "Display 0 already stopped.", "scrcpy was not running.");
+            var stopPreviewOutcome = _focusedLayerPreviewService.IsRunning
+                ? await _focusedLayerPreviewService.StopAsync().ConfigureAwait(false)
+                : new OperationOutcome(OperationOutcomeKind.Preview, "Render View already stopped.", "The direct Render View listener was not running.");
+            var mediaProjectionOutcome = await _mediaProjectionStreamService.StartAsync(selector).ConfigureAwait(false);
+            return new OperationOutcome(
+                GetMoreSevereOutcomeKind(GetMoreSevereOutcomeKind(stopCastOutcome.Kind, stopPreviewOutcome.Kind), mediaProjectionOutcome.Kind),
+                mediaProjectionOutcome.Summary,
+                $"{stopCastOutcome.Detail} {stopPreviewOutcome.Detail} {mediaProjectionOutcome.Detail} scrcpy stays off while MediaProjection is the main surface.".Trim(),
+                mediaProjectionOutcome.Endpoint ?? stopCastOutcome.Endpoint,
+                mediaProjectionOutcome.PackageId,
+                stopCastOutcome.SafeItems
+                    .Concat(stopPreviewOutcome.SafeItems)
+                    .Concat(mediaProjectionOutcome.SafeItems)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray());
+        }
+
+        var stopMediaProjectionForMirrorOutcome = _mediaProjectionStreamService.IsRunning
+            ? await _mediaProjectionStreamService.StopAsync().ConfigureAwait(false)
+            : new OperationOutcome(OperationOutcomeKind.Preview, "MediaProjection already stopped.", "The MediaProjection bridge was not running.");
 
         WindowLayoutBounds? initialCastBounds = null;
         if (_liveSessionCastOverlayWindow is { IsLoaded: true } overlayWindow &&
@@ -3601,7 +3677,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 "The direct render-view bridge was not started because the Display 0 cast did not open.")
             : await _focusedLayerPreviewService.StartAsync(selector).ConfigureAwait(false);
 
-        return CombineLiveSessionCastOutcomes(castOutcome, previewOutcome);
+        return CombineLiveSessionCastOutcomes("Display 0 cast ready.", stopMediaProjectionForMirrorOutcome, castOutcome, previewOutcome);
     }
 
     private async Task EnsureLiveSessionCastFocusedLayerPreviewAsync()
@@ -3622,6 +3698,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         await DispatchAsync(RefreshLiveSessionCastFocusedLayerPreviewState).ConfigureAwait(false);
     }
 
+    private async Task StopLiveSessionCastMediaProjectionAsync()
+    {
+        await _mediaProjectionStreamService.StopAsync().ConfigureAwait(false);
+        await DispatchAsync(RefreshLiveSessionCastFocusedLayerPreviewState).ConfigureAwait(false);
+    }
+
     private static OperationOutcome CombineLiveSessionCastOutcomes(OperationOutcome castOutcome, OperationOutcome previewOutcome)
     {
         var combinedItems = castOutcome.SafeItems.Concat(previewOutcome.SafeItems).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -3632,6 +3714,33 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             castOutcome.Endpoint ?? previewOutcome.Endpoint,
             castOutcome.PackageId ?? previewOutcome.PackageId,
             combinedItems);
+    }
+
+    private static OperationOutcome CombineLiveSessionCastOutcomes(string summary, params OperationOutcome[] outcomes)
+    {
+        if (outcomes.Length == 0)
+        {
+            return new OperationOutcome(OperationOutcomeKind.Preview, summary, string.Empty);
+        }
+
+        var kind = outcomes[0].Kind;
+        foreach (var outcome in outcomes.Skip(1))
+        {
+            kind = GetMoreSevereOutcomeKind(kind, outcome.Kind);
+        }
+
+        var detail = string.Join(
+            " ",
+            outcomes
+                .Select(outcome => outcome.Detail)
+                .Where(detail => !string.IsNullOrWhiteSpace(detail)));
+        var endpoint = outcomes.Select(outcome => outcome.Endpoint).FirstOrDefault(endpoint => !string.IsNullOrWhiteSpace(endpoint));
+        var packageId = outcomes.Select(outcome => outcome.PackageId).FirstOrDefault(packageId => !string.IsNullOrWhiteSpace(packageId));
+        var items = outcomes
+            .SelectMany(outcome => outcome.SafeItems)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return new OperationOutcome(kind, summary, detail, endpoint, packageId, items);
     }
 
     private static OperationOutcomeKind GetMoreSevereOutcomeKind(OperationOutcomeKind left, OperationOutcomeKind right)
@@ -3768,7 +3877,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RefreshLiveSessionCastState()
     {
-        if (IsLiveSessionCastRenderViewMode)
+        if (IsLiveSessionCastMediaProjectionMode)
+        {
+            LiveSessionCastLevel = _mediaProjectionStreamService.Level;
+            LiveSessionCastSummary = BuildLiveSessionCastMediaProjectionSummary();
+            LiveSessionCastDetail = BuildLiveSessionCastMediaProjectionDetail();
+        }
+        else if (IsLiveSessionCastRenderViewMode)
         {
             LiveSessionCastLevel = _focusedLayerPreviewService.Level;
             LiveSessionCastSummary = BuildLiveSessionCastRenderViewSummary();
@@ -3788,14 +3903,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RefreshLiveSessionCastFocusedLayerPreviewState()
     {
-        LiveSessionCastFocusedLayerPreviewLevel = _focusedLayerPreviewService.Level;
-        LiveSessionCastFocusedLayerPreviewSummary = BuildLiveSessionCastFocusedLayerPreviewSummary();
-        LiveSessionCastFocusedLayerPreviewDetail = BuildLiveSessionCastFocusedLayerPreviewDetail();
+        LiveSessionCastFocusedLayerPreviewLevel = IsLiveSessionCastMediaProjectionMode
+            ? _mediaProjectionStreamService.Level
+            : _focusedLayerPreviewService.Level;
+        LiveSessionCastFocusedLayerPreviewSummary = IsLiveSessionCastMediaProjectionMode
+            ? BuildLiveSessionCastMediaProjectionSummary()
+            : BuildLiveSessionCastFocusedLayerPreviewSummary();
+        LiveSessionCastFocusedLayerPreviewDetail = IsLiveSessionCastMediaProjectionMode
+            ? BuildLiveSessionCastMediaProjectionDetail()
+            : BuildLiveSessionCastFocusedLayerPreviewDetail();
         LiveSessionCastFocusedLayerPreviewImage = LoadQuestScreenshotPreview(
-            _focusedLayerPreviewService.LatestImageBytes,
-            _focusedLayerPreviewService.LatestArtifactPath);
+            IsLiveSessionCastMediaProjectionMode ? _mediaProjectionStreamService.LatestImageBytes : _focusedLayerPreviewService.LatestImageBytes,
+            IsLiveSessionCastMediaProjectionMode ? _mediaProjectionStreamService.LatestArtifactPath : _focusedLayerPreviewService.LatestArtifactPath);
         OnPropertyChanged(nameof(HasLiveSessionCastFocusedLayerPreviewImage));
         OnPropertyChanged(nameof(LiveSessionCastFocusedLayerPreviewArtifactPath));
+        OnPropertyChanged(nameof(LiveSessionCastFrameWaitingText));
     }
 
     private void SyncLiveSessionCastSurface()
@@ -3804,12 +3926,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RefreshLiveSessionCastFocusedLayerPreviewState();
         var castRunning = _questDisplayCastService.IsRunning;
         var previewRunning = _focusedLayerPreviewService.IsRunning;
+        var mediaProjectionRunning = _mediaProjectionStreamService.IsRunning;
         _lastFocusedLayerPreviewRunning = previewRunning;
+        _lastMediaProjectionStreamRunning = mediaProjectionRunning;
 
         if (_liveSessionCastStopInProgress)
         {
             CloseLiveSessionCastOverlayWindow(requestActivation: false);
-            if (!castRunning && !previewRunning)
+            if (!castRunning && !previewRunning && !mediaProjectionRunning)
             {
                 _liveSessionCastStopInProgress = false;
             }
@@ -3817,9 +3941,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (IsLiveSessionCastRenderViewMode)
+        if (IsLiveSessionCastDirectFrameMode)
         {
-            if (previewRunning || castRunning)
+            if (previewRunning || mediaProjectionRunning || castRunning)
             {
                 EnsureLiveSessionCastOverlayWindow();
                 return;
@@ -3836,6 +3960,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 _ = EnsureLiveSessionCastFocusedLayerPreviewAsync();
             }
 
+            if (mediaProjectionRunning)
+            {
+                _ = StopLiveSessionCastMediaProjectionAsync();
+            }
+
             EnsureLiveSessionCastOverlayWindow();
             return;
         }
@@ -3843,6 +3972,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         if (previewRunning)
         {
             _ = StopLiveSessionCastFocusedLayerPreviewAsync();
+        }
+
+        if (mediaProjectionRunning)
+        {
+            _ = StopLiveSessionCastMediaProjectionAsync();
         }
 
         CloseLiveSessionCastOverlayWindow();
@@ -3860,12 +3994,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(LiveSessionCastSurfaceModeLabel));
         OnPropertyChanged(nameof(LiveSessionCastSurfaceModeDetail));
         OnPropertyChanged(nameof(IsLiveSessionCastRenderViewMode));
+        OnPropertyChanged(nameof(IsLiveSessionCastMediaProjectionMode));
+        OnPropertyChanged(nameof(IsLiveSessionCastDirectFrameMode));
         OnPropertyChanged(nameof(ShowLiveSessionCastSidebarRenderView));
         OnPropertyChanged(nameof(LiveSessionCastStartActionLabel));
         OnPropertyChanged(nameof(LiveSessionCastRestartActionLabel));
         OnPropertyChanged(nameof(LiveSessionCastStopActionLabel));
         OnPropertyChanged(nameof(LiveSessionCastSourceLabel));
         OnPropertyChanged(nameof(LiveSessionCastToolingLabel));
+        OnPropertyChanged(nameof(LiveSessionCastFrameWaitingText));
         StopLiveSessionCastCommand.RaiseCanExecuteChanged();
     }
 
@@ -4164,7 +4301,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
            _runtimeConfig.SelectedProfile is not null;
 
     private bool CanStopLiveSessionCast()
-        => _questDisplayCastService.IsRunning || _focusedLayerPreviewService.IsRunning;
+        => _questDisplayCastService.IsRunning || _focusedLayerPreviewService.IsRunning || _mediaProjectionStreamService.IsRunning;
 
     private bool CanToggleLiveSessionCastAudioTrigger()
         => _liveSessionCastAudioTriggerSetting is not null &&
@@ -4301,9 +4438,27 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         => bool.TryParse(ReadLiveSessionCastAudioTriggerValue(), out var enabled) && enabled;
 
     private static string NormalizeLiveSessionCastSurfaceModeValue(string? value)
-        => string.Equals(value?.Trim(), LiveSessionCastSurfaceModeRenderView, StringComparison.OrdinalIgnoreCase)
-            ? LiveSessionCastSurfaceModeRenderView
-            : LiveSessionCastSurfaceModeMirror;
+    {
+        var normalizedValue = value?.Trim();
+        if (string.Equals(normalizedValue, LiveSessionCastSurfaceModeRenderView, StringComparison.OrdinalIgnoreCase))
+        {
+            return LiveSessionCastSurfaceModeRenderView;
+        }
+
+        if (string.Equals(normalizedValue, LiveSessionCastSurfaceModeMediaProjection, StringComparison.OrdinalIgnoreCase))
+        {
+            return LiveSessionCastSurfaceModeMediaProjection;
+        }
+
+        return LiveSessionCastSurfaceModeMirror;
+    }
+
+    private static bool IsLiveSessionCastDirectFrameModeValue(string? value)
+    {
+        var normalizedValue = NormalizeLiveSessionCastSurfaceModeValue(value);
+        return string.Equals(normalizedValue, LiveSessionCastSurfaceModeRenderView, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalizedValue, LiveSessionCastSurfaceModeMediaProjection, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string ResolveLiveSessionCastSurfaceModeLabel(string? value)
     {
@@ -5568,7 +5723,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             if (_liveSessionCastStopInProgress)
             {
                 CloseLiveSessionCastOverlayWindow(requestActivation: false);
-                if (!previewRunning && !_questDisplayCastService.IsRunning)
+                if (!previewRunning && !_questDisplayCastService.IsRunning && !_mediaProjectionStreamService.IsRunning)
                 {
                     _liveSessionCastStopInProgress = false;
                 }
@@ -5598,7 +5753,61 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (!previewRunning && !_questDisplayCastService.IsRunning)
+            if (!previewRunning && !_questDisplayCastService.IsRunning && !_mediaProjectionStreamService.IsRunning)
+            {
+                CloseLiveSessionCastOverlayWindow(requestActivation: false);
+            }
+        });
+    }
+
+    private void OnMediaProjectionStreamStateChanged(object? sender, EventArgs e)
+    {
+        _ = _dispatcher.InvokeAsync(() =>
+        {
+            var mediaProjectionRunning = _mediaProjectionStreamService.IsRunning;
+            var mediaProjectionRunningChanged = mediaProjectionRunning != _lastMediaProjectionStreamRunning;
+            _lastMediaProjectionStreamRunning = mediaProjectionRunning;
+
+            RefreshLiveSessionCastFocusedLayerPreviewState();
+            if (NeedsMediaProjectionSurfaceStateRefresh())
+            {
+                RefreshLiveSessionCastState();
+            }
+
+            if (_liveSessionCastStopInProgress)
+            {
+                CloseLiveSessionCastOverlayWindow(requestActivation: false);
+                if (!mediaProjectionRunning && !_focusedLayerPreviewService.IsRunning && !_questDisplayCastService.IsRunning)
+                {
+                    _liveSessionCastStopInProgress = false;
+                }
+
+                return;
+            }
+
+            var needsMediaProjectionOverlayRecovery = IsLiveSessionCastMediaProjectionMode &&
+                mediaProjectionRunning &&
+                _liveSessionCastOverlayWindow is not { IsLoaded: true };
+            if (!mediaProjectionRunningChanged && !needsMediaProjectionOverlayRecovery)
+            {
+                return;
+            }
+
+            if (IsLiveSessionCastMediaProjectionMode)
+            {
+                if (mediaProjectionRunning || _questDisplayCastService.IsRunning)
+                {
+                    EnsureLiveSessionCastOverlayWindow();
+                }
+                else
+                {
+                    CloseLiveSessionCastOverlayWindow(requestActivation: false);
+                }
+
+                return;
+            }
+
+            if (!mediaProjectionRunning && !_focusedLayerPreviewService.IsRunning && !_questDisplayCastService.IsRunning)
             {
                 CloseLiveSessionCastOverlayWindow(requestActivation: false);
             }
@@ -5621,6 +5830,22 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                !string.Equals(LiveSessionCastDetail, expectedDetail, StringComparison.Ordinal);
     }
 
+    private bool NeedsMediaProjectionSurfaceStateRefresh()
+    {
+        if (!IsLiveSessionCastMediaProjectionMode)
+        {
+            return false;
+        }
+
+        var expectedLevel = _mediaProjectionStreamService.Level;
+        var expectedSummary = BuildLiveSessionCastMediaProjectionSummary();
+        var expectedDetail = BuildLiveSessionCastMediaProjectionDetail();
+
+        return LiveSessionCastLevel != expectedLevel ||
+               !string.Equals(LiveSessionCastSummary, expectedSummary, StringComparison.Ordinal) ||
+               !string.Equals(LiveSessionCastDetail, expectedDetail, StringComparison.Ordinal);
+    }
+
     private string BuildLiveSessionCastRenderViewSummary()
         => _focusedLayerPreviewService.IsRunning
             ? BuildLiveSessionCastFocusedLayerPreviewSummary()
@@ -5630,6 +5855,42 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         => _focusedLayerPreviewService.IsRunning
             ? $"{BuildLiveSessionCastFocusedLayerPreviewDetail()} scrcpy stays off while Render View is the main surface.".Trim()
             : "Start Render View to listen for the direct Quest layer stream without launching scrcpy.";
+
+    private string BuildLiveSessionCastMediaProjectionSummary()
+    {
+        if (!_mediaProjectionStreamService.IsRunning)
+        {
+            return "MediaProjection idle.";
+        }
+
+        if (_mediaProjectionStreamService.LatestImageBytes is { Length: > 0 })
+        {
+            return "MediaProjection live.";
+        }
+
+        return _mediaProjectionStreamService.Summary;
+    }
+
+    private string BuildLiveSessionCastMediaProjectionDetail()
+    {
+        if (!_mediaProjectionStreamService.IsRunning)
+        {
+            return "Start MediaProjection to stream Rusty-DOPE composite capture frames without launching scrcpy.";
+        }
+
+        if (_mediaProjectionStreamService.LatestImageBytes is not { Length: > 0 })
+        {
+            return _mediaProjectionStreamService.Detail;
+        }
+
+        var artifactPath = NormalizeHostVisibleOperatorPath(_mediaProjectionStreamService.LatestArtifactPath);
+        var frameSizeLabel = _mediaProjectionStreamService.LatestWidth > 0 && _mediaProjectionStreamService.LatestHeight > 0
+            ? $"{_mediaProjectionStreamService.LatestWidth} x {_mediaProjectionStreamService.LatestHeight}"
+            : "latest available size";
+        return string.IsNullOrWhiteSpace(artifactPath)
+            ? $"Rusty-DOPE MediaProjection preview is streaming on {_mediaProjectionStreamService.BridgeUrl} at {frameSizeLabel}."
+            : $"Rusty-DOPE MediaProjection preview is streaming on {_mediaProjectionStreamService.BridgeUrl} at {frameSizeLabel}. Latest frame saved to {artifactPath}.";
+    }
 
     private string BuildLiveSessionCastFocusedLayerPreviewSummary()
     {
@@ -6033,19 +6294,29 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         var tags = app.Tags;
         var capabilities = new List<string>();
-        if (tags.Any(tag => tag.Equals("runtime", StringComparison.OrdinalIgnoreCase)))
+        if (HasTag(tags, "runtime"))
         {
             capabilities.Add("runtime-config publish");
         }
 
-        if (tags.Any(tag => tag.Equals("twin", StringComparison.OrdinalIgnoreCase)))
+        if (HasTag(tags, "twin"))
         {
             capabilities.Add("live twin requested/reported tracking");
         }
 
-        if (tags.Any(tag => tag.Equals("lsl", StringComparison.OrdinalIgnoreCase)))
+        if (HasTag(tags, "lsl"))
         {
             capabilities.Add("LSL telemetry or bridge transport");
+        }
+
+        if (HasTag(tags, "streaming"))
+        {
+            capabilities.Add("companion streaming controls");
+        }
+
+        if (HasTag(tags, "rust") || HasTag(tags, "makepad"))
+        {
+            capabilities.Add("Rusty-DOPE permission/property launch bootstrap");
         }
 
         if (capabilities.Count == 0)
@@ -6059,13 +6330,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private static string BuildSelectedAppCommunicationSummary(QuestAppTarget app)
     {
         var tags = app.Tags;
-        var supportsRuntime = tags.Any(tag => tag.Equals("runtime", StringComparison.OrdinalIgnoreCase));
-        var supportsTwin = tags.Any(tag => tag.Equals("twin", StringComparison.OrdinalIgnoreCase));
-        var supportsLsl = tags.Any(tag => tag.Equals("lsl", StringComparison.OrdinalIgnoreCase));
+        var supportsRuntime = HasTag(tags, "runtime");
+        var supportsTwin = HasTag(tags, "twin");
+        var supportsLsl = HasTag(tags, "lsl");
 
         if (!IsCompanionCompatibleTarget(tags))
         {
             return "Communication path: outside the tagged DOPE companion set. The Windows app can still install or launch it over ADB, but runtime publish, twin tracking, and app-state interpretation are not supported.";
+        }
+
+        if (HasTag(tags, "rust") || HasTag(tags, "makepad"))
+        {
+            return "Communication path: Rust/Makepad ADB launch. The companion installs and launches this APK, applies Rusty-DOPE debug properties, and can use the Render View or MediaProjection cast surfaces; Unity runtime-config hotload, live variable setters, and twin readback still require separate runtime support.";
         }
 
         if (supportsRuntime && supportsTwin)
@@ -6087,7 +6363,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     private static bool IsCompanionCompatibleTarget(IReadOnlyList<string> tags)
-        => tags.Any(tag => tag.Equals("dope", StringComparison.OrdinalIgnoreCase));
+        => HasTag(tags, "dope");
+
+    private static bool HasTag(IReadOnlyList<string> tags, string tag)
+        => tags.Any(candidate => candidate.Equals(tag, StringComparison.OrdinalIgnoreCase));
 
     private static string ClassifyTwinStateSource(string key)
         => key switch

@@ -14,7 +14,9 @@ internal static partial class AdbShellSupport
         => $"am force-stop {Quote(packageId)}";
 
     public static string BuildExplicitLaunchCommand(string component)
-        => $"am start -n {Quote(component)}";
+        => IsGeneratedMakepadXrActivity(component)
+            ? $"am start -W -a android.intent.action.MAIN -c com.oculus.intent.category.VR -n {Quote(component)}"
+            : $"am start -W -n {Quote(component)}";
 
     public static string BuildMonkeyLaunchCommand(string packageId)
         => $"monkey -p {Quote(packageId)} -c android.intent.category.LAUNCHER 1";
@@ -202,6 +204,10 @@ internal static partial class AdbShellSupport
 
     public static string Collapse(string value)
         => string.Join(" ", value.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+
+    private static bool IsGeneratedMakepadXrActivity(string component)
+        => component.EndsWith("/.MakepadAppXr", StringComparison.OrdinalIgnoreCase) ||
+           component.EndsWith(".MakepadAppXr", StringComparison.OrdinalIgnoreCase);
 
     [GeneratedRegex(@"(?:ResumedActivity:\s*(?:ActivityRecord\{[^}]*\s)?|Resumed:\s+ActivityRecord\{[^}]*\s)(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
     private static partial Regex PrimaryForegroundPattern1();

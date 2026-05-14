@@ -708,15 +708,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var launchTraceDetail = launchTrace.Count == 0 ? string.Empty : string.Join(" ", launchTrace);
         await RunShellAsync(selector, AdbShellSupport.BuildForceStopCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
 
-        var monkeyLaunch = await RunShellAsync(selector, AdbShellSupport.BuildMonkeyLaunchCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
-        if (LaunchSucceeded(monkeyLaunch))
-        {
-            return Success(
-                $"Launch command sent for {target.Label}.",
-                $"{launchTraceDetail} {AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)}".Trim(),
-                packageId: target.PackageId);
-        }
-
+        OperationOutcome? explicitFailure = null;
         if (!string.IsNullOrWhiteSpace(target.LaunchComponent))
         {
             var explicitLaunch = await RunShellAsync(selector, AdbShellSupport.BuildExplicitLaunchCommand(target.LaunchComponent), cancellationToken).ConfigureAwait(false);
@@ -728,15 +720,25 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                     packageId: target.PackageId);
             }
 
-            return Failure(
-                $"Launch failed for {target.Label}.",
-                $"{launchTraceDetail} {AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)} {AdbShellSupport.Collapse(explicitLaunch.CombinedOutput)}".Trim(),
+            explicitFailure = Failure(
+                $"Explicit launch failed for {target.Label}.",
+                AdbShellSupport.Collapse(explicitLaunch.CombinedOutput),
+                packageId: target.PackageId);
+        }
+
+        var monkeyLaunch = await RunShellAsync(selector, AdbShellSupport.BuildMonkeyLaunchCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
+        if (LaunchSucceeded(monkeyLaunch))
+        {
+            var fallbackDetail = explicitFailure is null ? string.Empty : $"Explicit component failed first. {explicitFailure.Detail}";
+            return Success(
+                $"Launch command sent for {target.Label}.",
+                $"{launchTraceDetail} {fallbackDetail} {AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)}".Trim(),
                 packageId: target.PackageId);
         }
 
         return Failure(
             $"Launch failed for {target.Label}.",
-            $"{launchTraceDetail} {monkeyLaunch.CombinedOutput}".Trim(),
+            $"{launchTraceDetail} {explicitFailure?.Detail} {AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)}".Trim(),
             packageId: target.PackageId);
     }
 

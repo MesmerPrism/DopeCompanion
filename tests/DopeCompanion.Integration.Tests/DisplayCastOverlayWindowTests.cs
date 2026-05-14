@@ -5,16 +5,7 @@ public sealed class DisplayCastOverlayWindowTests
     [Fact]
     public async Task Display_cast_overlay_window_declares_render_view_main_surface_selector_sidebar_tweak_list_apply_button_focus_layer_selector_and_audio_trigger_toggle()
     {
-        var xamlPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "..",
-            "..",
-            "..",
-            "..",
-            "..",
-            "src",
-            "DopeCompanion.App",
-            "DisplayCastOverlayWindow.xaml");
+        var xamlPath = ResolveRepoFile("src", "DopeCompanion.App", "DisplayCastOverlayWindow.xaml");
 
         var xaml = await File.ReadAllTextAsync(Path.GetFullPath(xamlPath));
 
@@ -22,7 +13,8 @@ public sealed class DisplayCastOverlayWindowTests
         Assert.Contains("Main view", xaml, StringComparison.Ordinal);
         Assert.Contains("LiveSessionCastSurfaceOptions", xaml, StringComparison.Ordinal);
         Assert.Contains("SelectLiveSessionCastSurfaceModeCommand", xaml, StringComparison.Ordinal);
-        Assert.Contains("IsLiveSessionCastRenderViewMode", xaml, StringComparison.Ordinal);
+        Assert.Contains("IsLiveSessionCastDirectFrameMode", xaml, StringComparison.Ordinal);
+        Assert.Contains("LiveSessionCastFrameWaitingText", xaml, StringComparison.Ordinal);
         Assert.Contains("LiveSessionCastFocusedLayerPreviewSummary", xaml, StringComparison.Ordinal);
         Assert.Contains("LiveSessionCastFocusedLayerPreviewImage", xaml, StringComparison.Ordinal);
         Assert.Contains("Live tweak values", xaml, StringComparison.Ordinal);
@@ -33,5 +25,22 @@ public sealed class DisplayCastOverlayWindowTests
         Assert.Contains("Audio trigger", xaml, StringComparison.Ordinal);
         Assert.Contains("ToggleLiveSessionCastAudioTriggerCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("Command=\"{Binding ApplyLiveSessionRuntimeConfigCommand}\"", xaml, StringComparison.Ordinal);
+    }
+
+    private static string ResolveRepoFile(params string[] segments)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine([directory.FullName, .. segments]);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not resolve repo file {Path.Combine(segments)} from {AppContext.BaseDirectory}.");
     }
 }

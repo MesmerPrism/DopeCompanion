@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.NamingConventionBinder;
 using System.Diagnostics;
+using System.Globalization;
 using DopeCompanion.Core.Models;
 using DopeCompanion.Core.Services;
 
@@ -34,6 +35,8 @@ public static class Program
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildToolingCommand());
         rootCommand.AddCommand(BuildWindowsEnvironmentCommand());
+        rootCommand.AddCommand(BuildLslTestSenderCommand());
+        rootCommand.AddCommand(BuildLslRoundTripCommand());
         rootCommand.AddCommand(BuildLiveSessionCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
@@ -1691,6 +1694,327 @@ public static class Program
 
         windowsEnvCommand.AddCommand(analyzeCommand);
         return windowsEnvCommand;
+    }
+
+    private static Command BuildLslTestSenderCommand()
+    {
+        var command = new Command(
+            "lsl-test-sender",
+            "Publish synthetic smoothed-HRV packets on the DOPE LSL biofeedback contract");
+        var streamOption = new Option<string>(
+            "--stream-name",
+            () => HrvBiofeedbackStreamContract.StreamName,
+            "LSL stream name to publish.");
+        var typeOption = new Option<string>(
+            "--stream-type",
+            () => HrvBiofeedbackStreamContract.StreamType,
+            "LSL stream type to publish.");
+        var sourceOption = new Option<string>(
+            "--source-id",
+            () => "dope.companion.cli.test",
+            "LSL source id to advertise.");
+        var durationOption = new Option<int>(
+            "--duration-seconds",
+            () => 0,
+            "How long to publish. Use 0 to run until Ctrl+C.");
+        var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output when the sender stops.");
+        command.AddOption(streamOption);
+        command.AddOption(typeOption);
+        command.AddOption(sourceOption);
+        command.AddOption(durationOption);
+        command.AddOption(jsonOption);
+
+        command.Handler = CommandHandler.Create(async (
+            string streamName,
+            string streamType,
+            string sourceId,
+            int durationSeconds,
+            bool json) =>
+        {
+            using var testSender = TestLslSignalServiceFactory.CreateDefault();
+            var start = testSender.Start(streamName, streamType, sourceId);
+            if (start.Kind == OperationOutcomeKind.Failure)
+            {
+                if (json)
+                {
+                    DopeCliSupport.WriteJson(new
+                    {
+                        start,
+                        stop = (OperationOutcome?)null,
+                        testSender.RuntimeState,
+                        testSender.IsRunning,
+                        testSender.LastValue,
+                        testSender.LastSentAtUtc,
+                        testSender.LastFaultDetail
+                    });
+                }
+                else
+                {
+                    PrintOutcome(start);
+                }
+                return;
+            }
+
+            if (!json)
+            {
+                PrintOutcome(start);
+                Console.WriteLine(durationSeconds > 0
+                    ? $"Publishing for {durationSeconds} seconds..."
+                    : "Publishing until Ctrl+C...");
+            }
+
+            if (durationSeconds > 0)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(durationSeconds)).ConfigureAwait(false);
+            }
+            else
+            {
+                await WaitForCtrlCAsync().ConfigureAwait(false);
+            }
+
+            var stop = testSender.Stop();
+            if (json)
+            {
+                DopeCliSupport.WriteJson(new
+                {
+                    start,
+                    stop,
+                    testSender.RuntimeState,
+                    testSender.IsRunning,
+                    testSender.LastValue,
+                    testSender.LastSentAtUtc,
+                    testSender.LastFaultDetail
+                });
+            }
+            else
+            {
+                var lastSent = testSender.LastSentAtUtc?.ToLocalTime().ToString("HH:mm:ss.fff") ?? "never";
+                Console.WriteLine($"Latest sample: {testSender.LastValue:0.000} at {lastSent}");
+                PrintOutcome(stop);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command BuildLslRoundTripCommand()
+    {
+        var command = new Command(
+            "lsl-roundtrip",
+            "Measure the Windows -> Quest -> Windows LSL clock-probe echo path");
+        var durationOption = new Option<int>(
+            "--duration-seconds",
+            () => DopeClockAlignmentStreamContract.DefaultDurationSeconds,
+            "How long to publish clock probes.");
+        var intervalOption = new Option<int>(
+            "--interval-ms",
+            () => DopeClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds,
+            "Milliseconds between clock probes.");
+        var echoGraceOption = new Option<int>(
+            "--echo-grace-ms",
+            () => DopeClockAlignmentStreamContract.DefaultEchoGraceMilliseconds,
+            "Milliseconds to wait for delayed Quest echoes after the probe window.");
+        var warmupOption = new Option<int>(
+            "--warmup-ms",
+            () => 1500,
+            "Milliseconds to keep the probe/echo streams warm before measured probes start.");
+        var sessionOption = new Option<string>(
+            "--session-id",
+            () => DopeClockAlignmentStreamContract.ParticleRuntimeSessionId,
+            "Session id expected in the Quest echo payload.");
+        var datasetHashOption = new Option<string>(
+            "--dataset-hash",
+            () => DopeClockAlignmentStreamContract.ParticleRuntimeDatasetHash,
+            "Dataset hash expected in the Quest echo payload.");
+        var outputOption = new Option<string?>(
+            "--output",
+            "CSV output path. Defaults to a diagnostics/lsl-roundtrip-* folder.");
+        var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+
+        command.AddOption(durationOption);
+        command.AddOption(intervalOption);
+        command.AddOption(echoGraceOption);
+        command.AddOption(warmupOption);
+        command.AddOption(sessionOption);
+        command.AddOption(datasetHashOption);
+        command.AddOption(outputOption);
+        command.AddOption(jsonOption);
+
+        command.Handler = CommandHandler.Create(async (
+            int durationSeconds,
+            int intervalMs,
+            int echoGraceMs,
+            int warmupMs,
+            string sessionId,
+            string datasetHash,
+            string? output,
+            bool json) =>
+        {
+            using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
+            var request = new StudyClockAlignmentRunRequest(
+                string.IsNullOrWhiteSpace(sessionId)
+                    ? DopeClockAlignmentStreamContract.ParticleRuntimeSessionId
+                    : sessionId.Trim(),
+                string.IsNullOrWhiteSpace(datasetHash)
+                    ? DopeClockAlignmentStreamContract.ParticleRuntimeDatasetHash
+                    : datasetHash.Trim(),
+                StudyClockAlignmentWindowKind.StartBurst,
+                TimeSpan.FromSeconds(Math.Max(1, durationSeconds)),
+                TimeSpan.FromMilliseconds(Math.Max(25, intervalMs)),
+                TimeSpan.FromMilliseconds(Math.Max(0, echoGraceMs)));
+
+            IProgress<StudyClockAlignmentProgress>? progress = null;
+            if (!json)
+            {
+                progress = new Progress<StudyClockAlignmentProgress>(value =>
+                {
+                    Console.WriteLine(
+                        $"{value.ProbesSent,3} sent / {value.EchoesReceived,3} echoed - {value.Detail}");
+                });
+            }
+
+            OperationOutcome? warmup = null;
+            OperationOutcome? cooldown = null;
+            try
+            {
+                if (warmupMs > 0)
+                {
+                    warmup = await clockAlignment.StartWarmSessionAsync().ConfigureAwait(false);
+                    if (!json)
+                    {
+                        PrintOutcome(warmup);
+                        Console.WriteLine($"Warming LSL round-trip path for {warmupMs} ms...");
+                    }
+                    await Task.Delay(TimeSpan.FromMilliseconds(warmupMs)).ConfigureAwait(false);
+                }
+
+                var result = await clockAlignment.RunAsync(request, progress).ConfigureAwait(false);
+                if (warmupMs > 0)
+                {
+                    cooldown = await clockAlignment.StopWarmSessionAsync().ConfigureAwait(false);
+                }
+
+                var csvPath = ResolveLslRoundTripCsvPath(output);
+                WriteClockAlignmentCsv(csvPath, request, result.Samples);
+
+                if (json)
+                {
+                    DopeCliSupport.WriteJson(new
+                    {
+                        csvPath,
+                        warmup,
+                        cooldown,
+                        result.Outcome,
+                        result.Summary,
+                        result.Samples,
+                        clockAlignment.RuntimeState
+                    });
+                    return;
+                }
+
+                PrintOutcome(result.Outcome);
+                Console.WriteLine($"CSV: {csvPath}");
+                Console.WriteLine(
+                    $"Echoes: {result.Summary.EchoesReceived}/{result.Summary.ProbesSent}, mean RTT: {FormatMilliseconds(result.Summary.MeanRoundTripSeconds)}, offset: {FormatMilliseconds(result.Summary.RecommendedQuestMinusWindowsClockSeconds)}");
+            }
+            finally
+            {
+                if (warmupMs > 0 && cooldown is null)
+                {
+                    try
+                    {
+                        await clockAlignment.StopWarmSessionAsync().ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        });
+
+        return command;
+    }
+
+    private static string ResolveLslRoundTripCsvPath(string? output)
+    {
+        if (!string.IsNullOrWhiteSpace(output))
+        {
+            var normalized = Path.GetFullPath(output.Trim().Trim('"'));
+            if (Path.HasExtension(normalized))
+            {
+                return normalized;
+            }
+
+            return Path.Combine(normalized, "clock_alignment_roundtrip.csv");
+        }
+
+        var stamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        return Path.Combine(
+            CompanionOperatorDataLayout.DiagnosticsRootPath,
+            $"lsl-roundtrip-{stamp}",
+            "clock_alignment_roundtrip.csv");
+    }
+
+    private static void WriteClockAlignmentCsv(
+        string csvPath,
+        StudyClockAlignmentRunRequest request,
+        IReadOnlyList<StudyClockAlignmentSample> samples)
+    {
+        var directory = Path.GetDirectoryName(csvPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        using var writer = new StreamWriter(csvPath, false, System.Text.Encoding.UTF8);
+        writer.WriteLine("participant_id,session_id,dataset_id,window_kind,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
+        foreach (var sample in samples)
+        {
+            writer.WriteLine(string.Join(
+                ',',
+                Csv("cli"),
+                Csv(request.SessionId),
+                Csv(request.DatasetHash),
+                Csv(sample.WindowKind.ToString()),
+                sample.ProbeSequence.ToString(CultureInfo.InvariantCulture),
+                Csv(sample.ProbeSentAtUtc.ToString("O", CultureInfo.InvariantCulture)),
+                sample.ProbeSentLocalClockSeconds.ToString("G17", CultureInfo.InvariantCulture),
+                Csv(sample.EchoReceivedAtUtc.ToString("O", CultureInfo.InvariantCulture)),
+                sample.EchoReceivedLocalClockSeconds.ToString("G17", CultureInfo.InvariantCulture),
+                sample.EchoSampleTimestampSeconds?.ToString("G17", CultureInfo.InvariantCulture) ?? string.Empty,
+                Csv(sample.QuestReceivedAtUtc),
+                sample.QuestReceivedLocalClockSeconds.ToString("G17", CultureInfo.InvariantCulture),
+                sample.QuestEchoLocalClockSeconds.ToString("G17", CultureInfo.InvariantCulture),
+                sample.QuestMinusWindowsClockSeconds.ToString("G17", CultureInfo.InvariantCulture),
+                sample.RoundTripSeconds.ToString("G17", CultureInfo.InvariantCulture)));
+        }
+    }
+
+    private static string Csv(string? value)
+    {
+        value ??= string.Empty;
+        return value.IndexOfAny([',', '"', '\r', '\n']) < 0
+            ? value
+            : $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
+    }
+
+    private static string FormatMilliseconds(double? seconds)
+        => seconds.HasValue
+            ? $"{seconds.Value * 1000d:0.0} ms"
+            : "n/a";
+
+    private static Task WaitForCtrlCAsync()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ConsoleCancelEventHandler? handler = null;
+        handler = (_, args) =>
+        {
+            args.Cancel = true;
+            Console.CancelKeyPress -= handler;
+            completion.TrySetResult();
+        };
+        Console.CancelKeyPress += handler;
+        return completion.Task;
     }
 
     private static async Task<OperationOutcome> GenerateDopeDiagnosticsPdfAsync(

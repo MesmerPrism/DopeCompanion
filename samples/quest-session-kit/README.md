@@ -26,8 +26,9 @@ from this kit and reports the active profile in startup diagnostics.
 
 The Rust APK is a separate OpenXR/Makepad target. The companion can install and
 launch it, and launch applies the Rusty-DOPE permission/property bootstrap
-(`horizonos.permission.HEADSET_CAMERA`, scene permission attempts, media
-projection app-op, and the tested `debug.rustydope.*` render/capture values).
+(`android.permission.CAMERA`, `horizonos.permission.HEADSET_CAMERA`, scene
+permission attempts, media projection app-op, and the tested
+`debug.rustydope.*` render/capture values).
 Do not expect the Unity CSV hotload profiles, runtime-config variable setters,
 quest_twin readback, or focused/media streaming controls to affect this target
 yet.

@@ -70,6 +70,7 @@ public static class HarnessScenarioRunner
             DeleteIfPresent(Path.Combine(outputRoot, "dope-main-window-cast-window-reliability.png"));
             DeleteIfPresent(Path.Combine(outputRoot, "dope-live-session-window-cast-window-reliability.png"));
             DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-mirror-start.png"));
+            DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-mirror-restored.png"));
             DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-mirror-resized.png"));
             DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-render-start.png"));
             DeleteIfPresent(Path.Combine(outputRoot, "dope-cast-overlay-render-restored.png"));
@@ -409,6 +410,53 @@ public static class HarnessScenarioRunner
                 Path.Combine(outputRoot, "dope-cast-overlay-mirror-start.png")
             ]));
 
+        await ActivateWindowAsync(mirrorOverlayWindow);
+        await ClickNamedButtonAsync(mirrorOverlayWindow, "MinimizeButton");
+        await WaitForConditionAsync(
+            () => IsWindowMinimized(CastWindowTitle) &&
+                  !IsVisible(mirrorOverlayWindow),
+            TimeSpan.FromSeconds(10),
+            "Mirror cast minimize button did not minimize the scrcpy window and hide the overlay.");
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "mirror-minimized",
+            "Display Mirror",
+            CaptureForegroundWindow(),
+            CastWindowTitle,
+            CastOverlayWindowTitle,
+            null,
+            null,
+            Array.Empty<string>()));
+
+        await ExecuteStandaloneCommandAsync(
+            mainViewModel.StartLiveSessionCastCommand,
+            mainViewModel.LiveSessionCastStartActionLabel,
+            TimeSpan.FromSeconds(45));
+        await WaitForConditionAsync(
+            () => mainViewModel.LiveSessionCastLevel == OperationOutcomeKind.Success &&
+                  !IsWindowMinimized(CastWindowTitle) &&
+                  IsVisible(mirrorOverlayWindow) &&
+                  TryGetWindowBounds(CastWindowTitle, out _) &&
+                  TryGetWindowBounds(CastOverlayWindowTitle, out _),
+            TimeSpan.FromSeconds(15),
+            $"Mirror cast start action did not restore the minimized cast window. {mainViewModel.LiveSessionCastSummary} {mainViewModel.LiveSessionCastDetail}");
+        await WaitForForegroundWindowAsync(
+            title => string.Equals(title, CastWindowTitle, StringComparison.Ordinal) ||
+                     string.Equals(title, CastOverlayWindowTitle, StringComparison.Ordinal),
+            TimeSpan.FromSeconds(10),
+            $"Mirror cast restore did not bring the cast back to the foreground. Foreground was `{CaptureForegroundWindow().Title}`.");
+        CaptureWindow(mirrorOverlayWindow, Path.Combine(outputRoot, "dope-cast-overlay-mirror-restored.png"));
+        TryGetWindowBounds(CastWindowTitle, out mirrorCastBounds);
+        TryGetWindowBounds(CastOverlayWindowTitle, out mirrorOverlayBounds);
+        phases.Add(new CastWindowReliabilityPhaseReport(
+            "mirror-restored",
+            "Display Mirror",
+            CaptureForegroundWindow(),
+            CastWindowTitle,
+            CastOverlayWindowTitle,
+            mirrorCastBounds,
+            mirrorOverlayBounds,
+            [Path.Combine(outputRoot, "dope-cast-overlay-mirror-restored.png")]));
+
         var resizedOverlayBounds = new NativeWindowBounds(
             mirrorOverlayBounds.X,
             mirrorOverlayBounds.Y,
@@ -516,9 +564,9 @@ public static class HarnessScenarioRunner
                 Path.Combine(outputRoot, "focused-layer-preview-render-start.png")
             }.Where(File.Exists).ToArray()));
 
-        await Application.Current.Dispatcher.InvokeAsync(() => renderViewWindow.WindowState = WindowState.Minimized);
+        await ClickNamedButtonAsync(renderViewWindow, "MinimizeButton");
         await WaitForConditionAsync(
-            () => renderViewWindow.WindowState == WindowState.Minimized,
+            () => GetWindowState(renderViewWindow) == WindowState.Minimized,
             TimeSpan.FromSeconds(5),
             "Render View window did not minimize during reliability verification.");
         await ExecuteStandaloneCommandAsync(
@@ -526,7 +574,7 @@ public static class HarnessScenarioRunner
             mainViewModel.LiveSessionCastStartActionLabel,
             TimeSpan.FromSeconds(45));
         await WaitForConditionAsync(
-            () => renderViewWindow.WindowState == WindowState.Normal &&
+            () => GetWindowState(renderViewWindow) == WindowState.Normal &&
                   TryGetWindowBounds(RenderViewWindowTitle, out _),
             TimeSpan.FromSeconds(15),
             "Start Render View did not restore the minimized Render View window.");
@@ -3324,6 +3372,33 @@ public static class HarnessScenarioRunner
         return true;
     }
 
+    private static bool IsWindowMinimized(string windowTitle)
+    {
+        var handle = NativeMethods.FindWindow(null, windowTitle);
+        return handle != IntPtr.Zero && NativeMethods.IsIconic(handle);
+    }
+
+    private static WindowState GetWindowState(Window window)
+        => window.Dispatcher.CheckAccess()
+            ? window.WindowState
+            : window.Dispatcher.Invoke(() => window.WindowState);
+
+    private static bool IsVisible(Window window)
+        => window.Dispatcher.CheckAccess()
+            ? window.IsVisible
+            : window.Dispatcher.Invoke(() => window.IsVisible);
+
+    private static Task ClickNamedButtonAsync(Window window, string buttonName)
+        => window.Dispatcher.InvokeAsync(() =>
+        {
+            if (window.FindName(buttonName) is not Button button)
+            {
+                throw new InvalidOperationException($"Window `{window.Title}` did not expose a `{buttonName}` button.");
+            }
+
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+        }).Task;
+
     private static bool TryMoveWindow(string windowTitle, NativeWindowBounds bounds)
     {
         var handle = NativeMethods.FindWindow(null, windowTitle);
@@ -3592,6 +3667,10 @@ public static class HarnessScenarioRunner
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool GetWindowRect(nint windowHandle, out RECT rect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool IsIconic(nint windowHandle);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         internal static extern int GetWindowText(nint windowHandle, StringBuilder text, int count);

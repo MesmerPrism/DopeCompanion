@@ -87,6 +87,16 @@ then refresh the mirrored APK here.
 - Validate extracted packaged payload signatures, not just the outer MSIX.
 - Keep a manual `.cer` + `.appinstaller` path documented even when the helper
   EXE is the preferred install route.
+- Keep third-party tool installs explicit and version/hash pinned for public
+  releases.
+- Treat scrcpy as an external operator inspection dependency unless a release
+  audit explicitly approves bundling its full Windows runtime and notices.
+- If enabling `--video-codec=h265`, keep it optional and retain H.264 as the
+  compatibility/low-latency default.
+- Do not use the scrcpy control protocol for custom telemetry; use OSC,
+  WebSocket, LSL, MQTT, or another structured channel.
+- For bundled APKs, record source commit/tag, APK SHA-256, signing mode,
+  included native libraries, permissions, and debug/release status.
 
 ## Editing Guardrails
 

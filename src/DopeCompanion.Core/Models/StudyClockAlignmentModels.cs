@@ -7,6 +7,8 @@ public static class DopeClockAlignmentStreamContract
     public const string EchoStreamName = "DopeClockEcho";
     public const string EchoStreamType = "dope.clock.echo";
     public const string EchoChannelLabel = "clock_alignment_echo";
+    public const string ParticleRuntimeSessionId = "particles-xr";
+    public const string ParticleRuntimeDatasetHash = "particles-xr-live";
     public const int DefaultDurationSeconds = 10;
     public const int DefaultProbeIntervalMilliseconds = 250;
     public const int DefaultEchoGraceMilliseconds = 1500;
